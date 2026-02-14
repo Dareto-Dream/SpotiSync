@@ -23,6 +23,13 @@ export default function RoomPage() {
   const navigate = useNavigate();
   const { socket, connected, connect: connectSocket } = useSocket();
 
+  console.log('[RoomPage] Rendered:', {
+    sessionId,
+    socketConnected: connected,
+    hasSocket: !!socket,
+    timestamp: new Date().toISOString()
+  });
+
   const [activeTab, setActiveTab] = useState('search');
   const [queue, setQueue] = useState([]);
   const [nowPlaying, setNowPlaying] = useState(null);
@@ -39,6 +46,15 @@ export default function RoomPage() {
   const accessToken = isHost ? hostData?.accessToken : null;
   const userName = isHost ? 'Host' : (guestData?.name || 'Guest');
 
+  console.log('[RoomPage] Role determined:', {
+    isHost,
+    userName,
+    hasAccessToken: !!accessToken,
+    tokenPreview: accessToken?.substring(0, 20) + '...',
+    hostDataSession: hostData?.sessionId,
+    currentSessionId: sessionId
+  });
+
   // Spotify Web Playback SDK (host only)
   const {
     deviceId,
@@ -51,48 +67,86 @@ export default function RoomPage() {
 
   const deviceTransferredRef = useRef(false);
 
-  // Connect socket if not connected
+  console.log('[RoomPage] Player state:', {
+    deviceId,
+    connectionState,
+    playerError,
+    deviceTransferred: deviceTransferredRef.current,
+    hasPlayerState: !!playerState
+  });
+
+  // Connect socket
   useEffect(() => {
-    if (!connected) connectSocket();
+    console.log('[RoomPage] Socket connection effect:', { connected });
+    if (!connected) {
+      console.log('[RoomPage] Connecting socket...');
+      connectSocket();
+    }
   }, [connected, connectSocket]);
 
-  // Join session via socket
+  // Join session
   useEffect(() => {
-    if (!socket || !connected) return;
+    console.log('[RoomPage] Session join effect:', {
+      hasSocket: !!socket,
+      connected,
+      sessionId
+    });
+
+    if (!socket || !connected) {
+      console.log('[RoomPage] Waiting for socket connection...');
+      return;
+    }
+
+    console.log('[RoomPage] Emitting session:join:', {
+      sessionId,
+      userName,
+      isHost,
+      timestamp: new Date().toISOString()
+    });
 
     socket.emit('session:join', { sessionId, name: userName, isHost });
 
     socket.on('session:state', (state) => {
+      console.log('[Socket] session:state received:', state);
       setQueue(state.queue || []);
       setNowPlaying(state.nowPlaying);
       setParticipants(state.participants || []);
     });
 
-    socket.on('queue:updated', ({ queue: q }) => setQueue(q));
+    socket.on('queue:updated', ({ queue: q }) => {
+      console.log('[Socket] queue:updated:', q);
+      setQueue(q);
+    });
 
-    socket.on('session:participants', ({ participants: p }) => setParticipants(p));
+    socket.on('session:participants', ({ participants: p }) => {
+      console.log('[Socket] session:participants:', p);
+      setParticipants(p);
+    });
 
     socket.on('playback:state', ({ isPlaying: ip, nowPlaying: np }) => {
+      console.log('[Socket] playback:state:', { isPlaying: ip, nowPlaying: np });
       setIsPlaying(ip);
       if (np) setNowPlaying(np);
     });
 
     socket.on('session:ended', ({ reason }) => {
-      // Show the reason in an alert or notification
+      console.log('[Socket] session:ended:', reason);
       alert(reason || 'Session ended');
       navigate('/', { replace: true });
     });
 
     socket.on('error', ({ message }) => {
+      console.error('[Socket] error:', message);
       setError(message);
       setTimeout(() => setError(null), 5000);
     });
 
     socket.on('playback:deviceTransferred', () => {
-      console.log('Device transfer confirmed');
+      console.log('[Socket] playback:deviceTransferred confirmed');
     });
 
     return () => {
+      console.log('[RoomPage] Cleaning up socket listeners');
       socket.off('session:state');
       socket.off('queue:updated');
       socket.off('session:participants');
@@ -105,16 +159,30 @@ export default function RoomPage() {
 
   // Fetch join code
   useEffect(() => {
+    console.log('[RoomPage] Fetching join code for session:', sessionId);
     fetch(`/api/sessions/${sessionId}`)
-      .then(r => r.json())
-      .then(d => setJoinCode(d.joinCode || ''))
-      .catch(() => {});
+      .then(r => {
+        console.log('[RoomPage] Session fetch response status:', r.status);
+        return r.json();
+      })
+      .then(d => {
+        console.log('[RoomPage] Session data:', d);
+        setJoinCode(d.joinCode || '');
+      })
+      .catch(err => {
+        console.error('[RoomPage] Failed to fetch session:', err);
+      });
   }, [sessionId]);
 
   // Update now playing from player state
   useEffect(() => {
     if (playerState?.track_window?.current_track) {
       const ct = playerState.track_window.current_track;
+      console.log('[RoomPage] Updating now playing from player state:', {
+        name: ct.name,
+        uri: ct.uri,
+        paused: playerState.paused
+      });
       setNowPlaying({
         uri: ct.uri,
         name: ct.name,
@@ -126,8 +194,16 @@ export default function RoomPage() {
     }
   }, [playerState]);
 
-  // Transfer playback to Web SDK device after connection (fixes Issue #3)
+  // Transfer playback to Web SDK device
   useEffect(() => {
+    console.log('[RoomPage] Device transfer effect:', {
+      isHost,
+      deviceId,
+      connectionState,
+      deviceTransferred: deviceTransferredRef.current,
+      hasSocket: !!socket
+    });
+
     if (
       isHost &&
       deviceId &&
@@ -135,164 +211,168 @@ export default function RoomPage() {
       !deviceTransferredRef.current &&
       socket
     ) {
-      console.log('Transferring playback to Web SDK device:', deviceId);
+      console.log('[RoomPage] 🎯 TRANSFERRING PLAYBACK:', {
+        sessionId,
+        deviceId,
+        timestamp: new Date().toISOString()
+      });
+
       socket.emit('playback:transferDevice', { sessionId, deviceId });
       deviceTransferredRef.current = true;
+      
+      console.log('[RoomPage] Device transfer emit completed');
     }
   }, [isHost, deviceId, connectionState, sessionId, socket]);
 
-  // Handle connect button click (must be user gesture)
+  // Handle connect button click
   const handleConnect = useCallback(async () => {
+    console.log('[RoomPage] handleConnect called');
     const success = await connectPlayer();
+    console.log('[RoomPage] connectPlayer result:', success);
+    
     if (!success) {
       setError('Failed to connect Web Player. Please try again.');
+      console.error('[RoomPage] Connection failed');
+    } else {
+      console.log('[RoomPage] Connection successful!');
     }
   }, [connectPlayer]);
 
-  const addToQueue = useCallback((track) => {
-    socket?.emit('queue:add', { sessionId, track });
+  const handleAddToQueue = useCallback(async (track) => {
+    console.log('[RoomPage] handleAddToQueue:', track);
+    if (!socket) {
+      console.error('[RoomPage] Cannot add to queue - no socket');
+      return;
+    }
+
+    socket.emit('queue:add', { sessionId, track });
+    console.log('[RoomPage] Emitted queue:add');
   }, [socket, sessionId]);
 
-  const removeFromQueue = useCallback((queueId) => {
-    socket?.emit('queue:remove', { sessionId, queueId });
+  const handleRemoveFromQueue = useCallback((queueId) => {
+    console.log('[RoomPage] handleRemoveFromQueue:', queueId);
+    if (!socket) return;
+    socket.emit('queue:remove', { sessionId, queueId });
   }, [socket, sessionId]);
 
-  const playTrack = useCallback((uri) => {
-    socket?.emit('playback:play', { sessionId, uri, deviceId });
-  }, [socket, sessionId, deviceId]);
-
-  const playNext = useCallback(() => {
-    socket?.emit('playback:next', { sessionId, deviceId });
-  }, [socket, sessionId, deviceId]);
-
-  const pausePlayback = useCallback(() => {
-    socket?.emit('playback:pause', { sessionId });
+  const handlePlayTrack = useCallback(async (uri) => {
+    console.log('[RoomPage] handlePlayTrack:', uri);
+    if (!socket) return;
+    socket.emit('playback:play', { sessionId, uri });
   }, [socket, sessionId]);
 
-  const handleCopy = () => {
+  const handleNextTrack = useCallback(() => {
+    console.log('[RoomPage] handleNextTrack called');
+    if (!socket) return;
+    socket.emit('playback:next', { sessionId });
+  }, [socket, sessionId]);
+
+  const copyJoinCode = useCallback(() => {
+    console.log('[RoomPage] Copying join code:', joinCode);
     navigator.clipboard.writeText(joinCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [joinCode]);
 
   if (!connected) {
+    console.log('[RoomPage] Rendering loading state');
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 text-spotify-green animate-spin" />
-          <p className="text-white/40">Connecting...</p>
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-spotify-green" />
+          <p className="text-white/60">Connecting to session...</p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Sidebar / Header */}
-      <div className="lg:w-80 lg:min-h-screen lg:border-r border-white/[0.06] bg-black/30 shrink-0">
-        <div className="p-6">
-          {/* Logo + Code */}
-          <div className="flex items-center gap-2 mb-6">
-            <div className="w-8 h-8 rounded-lg bg-spotify-green/20 border border-spotify-green/30 flex items-center justify-center">
-              <Radio className="w-4 h-4 text-spotify-green" />
-            </div>
-            <span className="font-['Outfit'] font-bold tracking-tight">SpotiSync</span>
-            {isHost && (
-              <span className="ml-auto px-2 py-0.5 rounded-md bg-spotify-green/10 text-spotify-green text-[10px] font-bold uppercase tracking-wider">
-                Host
-              </span>
-            )}
-          </div>
+  console.log('[RoomPage] Rendering main UI');
 
-          {/* Join Code */}
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] pb-20">
+      <div className="px-4 pt-6 pb-4 border-b border-white/[0.08]">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-spotify-green to-accent-lime flex items-center justify-center">
+              <Radio className="w-5 h-5 text-black" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-white">SpotiSync</h1>
+              <p className="text-xs text-white/40">{isHost ? 'Host' : 'Guest'} Mode</p>
+            </div>
+          </div>
           {joinCode && (
             <button
-              onClick={handleCopy}
-              className="w-full mb-6 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between group hover:bg-white/[0.05] transition-all"
+              onClick={copyJoinCode}
+              className="px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center gap-2 transition-colors"
             >
-              <div className="text-left">
-                <p className="text-[10px] uppercase tracking-[0.15em] text-white/25 font-medium">Room Code</p>
-                <p className="font-['JetBrains_Mono'] font-bold tracking-[0.2em] text-white/80">{joinCode}</p>
-              </div>
-              {copied ? <Check className="w-4 h-4 text-spotify-green" /> : <Copy className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors" />}
+              {copied ? <Check className="w-4 h-4 text-spotify-green" /> : <Copy className="w-4 h-4" />}
+              <span className="font-mono font-semibold text-sm">{joinCode}</span>
             </button>
           )}
-
-          {/* Now Playing */}
-          <NowPlaying track={nowPlaying} isPlaying={isPlaying} />
-
-          {/* Host Controls */}
-          {isHost && (
-            <HostControls
-              isPlaying={isPlaying}
-              connectionState={connectionState}
-              deviceId={deviceId}
-              onConnect={handleConnect}
-              onPlay={() => playTrack(nowPlaying?.uri)}
-              onPause={pausePlayback}
-              onNext={playNext}
-              onToggle={togglePlay}
-              playerState={playerState}
-              error={playerError}
-            />
-          )}
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen lg:min-h-0">
-        {/* Error Toast */}
-        {error && (
-          <div className="mx-4 mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 animate-slide-up">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            {error}
+        {(error || playerError) && (
+          <div className="mt-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-red-400">{error || playerError}</p>
           </div>
         )}
+      </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-white/[0.06] px-4">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-4 text-sm font-medium transition-all relative
-                ${activeTab === tab.id ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-              {tab.id === 'queue' && queue.length > 0 && (
-                <span className="ml-1 w-5 h-5 rounded-full bg-spotify-green/20 text-spotify-green text-[10px] font-bold flex items-center justify-center">
-                  {queue.length}
-                </span>
-              )}
-              {tab.id === 'people' && participants.length > 0 && (
-                <span className="ml-1 w-5 h-5 rounded-full bg-white/[0.08] text-white/50 text-[10px] font-bold flex items-center justify-center">
-                  {participants.length}
-                </span>
-              )}
-              {activeTab === tab.id && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-spotify-green rounded-full" />
-              )}
-            </button>
-          ))}
+      {nowPlaying && (
+        <div className="px-4 py-4 border-b border-white/[0.08]">
+          <NowPlaying track={nowPlaying} isPlaying={isPlaying} />
+        </div>
+      )}
+
+      {isHost && (
+        <div className="px-4 py-4 border-b border-white/[0.08]">
+          <HostControls
+            isPlaying={isPlaying}
+            connectionState={connectionState}
+            deviceId={deviceId}
+            onConnect={handleConnect}
+            onToggle={togglePlay}
+            onNext={handleNextTrack}
+            playerState={playerState}
+            error={playerError}
+          />
+        </div>
+      )}
+
+      <div className="px-4 pt-4">
+        <div className="flex gap-2 mb-4">
+          {TABS.map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all ${
+                  isActive
+                    ? 'bg-white/[0.08] text-white'
+                    : 'bg-white/[0.02] text-white/40 hover:bg-white/[0.04]'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="text-sm font-medium">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {activeTab === 'search' && (
-            <Search sessionId={sessionId} onAddToQueue={addToQueue} />
-          )}
+        <div>
+          {activeTab === 'search' && <Search onAddTrack={handleAddToQueue} />}
           {activeTab === 'queue' && (
             <Queue
               queue={queue}
-              isHost={isHost}
-              onRemove={removeFromQueue}
-              onPlay={playTrack}
+              onRemove={isHost ? handleRemoveFromQueue : undefined}
+              onPlay={isHost ? handlePlayTrack : undefined}
             />
           )}
-          {activeTab === 'people' && (
-            <Participants participants={participants} />
-          )}
+          {activeTab === 'people' && <Participants participants={participants} />}
         </div>
       </div>
     </div>

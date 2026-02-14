@@ -1,89 +1,203 @@
-const SPOTIFY_API = 'https://api.spotify.com/v1';
-const SPOTIFY_ACCOUNTS = 'https://accounts.spotify.com';
-
-export async function refreshAccessToken(refreshToken) {
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-  });
-
-  const res = await fetch(`${SPOTIFY_ACCOUNTS}/api/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(
-        `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-      ).toString('base64')}`,
-    },
-    body,
-  });
-
-  if (!res.ok) throw new Error('Failed to refresh token');
-  return res.json();
-}
+const SPOTIFY_API_BASE = 'https://api.spotify.com';
 
 export async function spotifyGet(endpoint, token) {
-  const res = await fetch(`${SPOTIFY_API}${endpoint}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  console.log(`[Spotify API] GET ${endpoint}`, {
+    hasToken: !!token,
+    tokenPreview: token?.substring(0, 20) + '...',
+    timestamp: new Date().toISOString()
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(err?.error?.message || res.statusText), { status: res.status });
+
+  const url = `${SPOTIFY_API_BASE}${endpoint}`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log(`[Spotify API] GET ${endpoint} response:`, {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers),
+      timestamp: new Date().toISOString()
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Spotify API] GET ${endpoint} error response:`, {
+        status: response.status,
+        errorText
+      });
+    }
+
+    return response;
+  } catch (err) {
+    console.error(`[Spotify API] GET ${endpoint} fetch error:`, err);
+    throw err;
   }
-  return res.json();
 }
 
-export async function spotifyPut(endpoint, token, body) {
-  const res = await fetch(`${SPOTIFY_API}${endpoint}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
+export async function spotifyPut(endpoint, body, token) {
+  console.log(`[Spotify API] PUT ${endpoint}`, {
+    body,
+    hasToken: !!token,
+    tokenPreview: token?.substring(0, 20) + '...',
+    timestamp: new Date().toISOString()
   });
-  // 204 is success with no content
-  if (res.status === 204) return {};
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(err?.error?.message || res.statusText), { status: res.status });
+
+  const url = `${SPOTIFY_API_BASE}${endpoint}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    console.log(`[Spotify API] PUT ${endpoint} response:`, {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers),
+      timestamp: new Date().toISOString()
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Spotify API] PUT ${endpoint} error response:`, {
+        status: response.status,
+        errorText,
+        requestBody: body
+      });
+    }
+
+    return response;
+  } catch (err) {
+    console.error(`[Spotify API] PUT ${endpoint} fetch error:`, err);
+    throw err;
   }
-  return res.json().catch(() => ({}));
 }
 
-export async function spotifyPost(endpoint, token, body) {
-  const res = await fetch(`${SPOTIFY_API}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
+export async function spotifyPost(endpoint, body, token) {
+  console.log(`[Spotify API] POST ${endpoint}`, {
+    body,
+    hasToken: !!token,
+    tokenPreview: token?.substring(0, 20) + '...',
+    timestamp: new Date().toISOString()
   });
-  if (res.status === 204) return {};
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(err?.error?.message || res.statusText), { status: res.status });
+
+  const url = `${SPOTIFY_API_BASE}${endpoint}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    console.log(`[Spotify API] POST ${endpoint} response:`, {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Spotify API] POST ${endpoint} error response:`, {
+        status: response.status,
+        errorText
+      });
+    }
+
+    return response;
+  } catch (err) {
+    console.error(`[Spotify API] POST ${endpoint} fetch error:`, err);
+    throw err;
   }
-  return res.json().catch(() => ({}));
 }
 
-// Helper to get a valid token (refreshing if needed)
 export async function getValidToken(session, sessionStore) {
-  if (session.hostTokenExpiry && Date.now() < session.hostTokenExpiry - 60000) {
+  console.log('[Token] getValidToken called:', {
+    sessionId: session.id,
+    hasToken: !!session.hostToken,
+    hasRefreshToken: !!session.hostRefreshToken,
+    tokenExpiry: session.hostTokenExpiry,
+    now: Date.now(),
+    expiresIn: session.hostTokenExpiry ? Math.floor((session.hostTokenExpiry - Date.now()) / 1000) : null
+  });
+
+  // Check if token is still valid (at least 60 seconds remaining)
+  if (session.hostToken && session.hostTokenExpiry && session.hostTokenExpiry > Date.now() + 60000) {
+    console.log('[Token] ✅ Existing token is valid, returning it');
     return session.hostToken;
   }
-  if (!session.hostRefreshToken) return session.hostToken;
+
+  console.log('[Token] Token expired or expiring soon, refreshing...');
+
+  if (!session.hostRefreshToken) {
+    console.error('[Token] ❌ No refresh token available!');
+    throw new Error('No refresh token available to refresh access token');
+  }
 
   try {
-    const data = await refreshAccessToken(session.hostRefreshToken);
+    console.log('[Token] Calling Spotify token refresh endpoint...');
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic ' + Buffer.from(
+          `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+        ).toString('base64'),
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: session.hostRefreshToken,
+      }),
+    });
+
+    console.log('[Token] Refresh response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Token] ❌ Refresh failed:', {
+        status: response.status,
+        errorText
+      });
+      throw new Error(`Token refresh failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[Token] ✅ New token received:', {
+      hasAccessToken: !!data.access_token,
+      hasRefreshToken: !!data.refresh_token,
+      expiresIn: data.expires_in,
+      tokenType: data.token_type
+    });
+
+    const newExpiry = Date.now() + (data.expires_in * 1000);
+
+    // Update session with new token
     await sessionStore.update(session.id, {
       hostToken: data.access_token,
-      hostTokenExpiry: Date.now() + data.expires_in * 1000,
-      ...(data.refresh_token && { hostRefreshToken: data.refresh_token }),
+      hostRefreshToken: data.refresh_token || session.hostRefreshToken,
+      hostTokenExpiry: newExpiry,
     });
+
+    console.log('[Token] ✅ Session updated with new token, expires at:', new Date(newExpiry).toISOString());
+
     return data.access_token;
-  } catch {
-    return session.hostToken; // fallback
+  } catch (err) {
+    console.error('[Token] Token refresh error:', err);
+    throw err;
   }
 }

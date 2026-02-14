@@ -1,45 +1,60 @@
 import { spotifyPut, spotifyPost, getValidToken } from '../utils/spotify.js';
 
 // Track which socket is the host for each room
-const roomHosts = new Map(); // roomId -> socketId
+const roomHosts = new Map();
 
 export function setupSocket(io, sessionStore) {
+  console.log('[Socket] Socket.IO handler initialized');
+
   io.on('connection', (socket) => {
-    console.log(`Socket connected: ${socket.id}`);
+    console.log(`[Socket] ✅ Client connected: ${socket.id}`);
 
     let heartbeatInterval = null;
 
-    // Join a session room
+    // Join session
     socket.on('session:join', async ({ sessionId, name, isHost }) => {
+      console.log(`[Socket] session:join received:`, {
+        socketId: socket.id,
+        sessionId,
+        name,
+        isHost,
+        timestamp: new Date().toISOString()
+      });
+
       try {
         const session = await sessionStore.getById(sessionId);
         if (!session) {
+          console.error(`[Socket] Session not found: ${sessionId}`);
           socket.emit('error', { message: 'Session not found' });
           return;
         }
 
+        console.log(`[Socket] Session found, joining room...`);
         socket.join(sessionId);
         socket.data.sessionId = sessionId;
         socket.data.isHost = isHost || false;
         socket.data.name = name || 'Anonymous';
 
         await sessionStore.addParticipant(sessionId, socket.id, name || 'Anonymous');
+        console.log(`[Socket] Participant added to database`);
 
-        // If this is the host, track it and start heartbeat
+        // Track host
         if (isHost) {
           roomHosts.set(sessionId, socket.id);
+          console.log(`[Socket] 🎤 Host registered for room ${sessionId}`);
           
-          // Update heartbeat every 5 seconds
+          // Start heartbeat
           heartbeatInterval = setInterval(async () => {
             try {
               await sessionStore.updateHeartbeat(sessionId);
+              console.log(`[Socket] ❤️ Heartbeat updated for ${sessionId}`);
             } catch (err) {
-              console.error('Heartbeat update error:', err);
+              console.error('[Socket] Heartbeat update error:', err);
             }
           }, 5000);
         }
 
-        // Send current state to the joiner
+        // Send current state
         const updatedSession = await sessionStore.getById(sessionId);
         socket.emit('session:state', {
           queue: updatedSession.queue,
@@ -50,6 +65,8 @@ export function setupSocket(io, sessionStore) {
           })),
         });
 
+        console.log(`[Socket] Sent session:state to ${socket.id}`);
+
         // Notify everyone
         io.to(sessionId).emit('session:participants', {
           participants: updatedSession.participants.map(p => ({ 
@@ -58,200 +75,239 @@ export function setupSocket(io, sessionStore) {
           })),
         });
 
-        console.log(`${name} ${isHost ? '(HOST)' : ''} joined session ${session.joinCode}`);
+        console.log(`[Socket] ✅ ${name} ${isHost ? '(HOST)' : ''} joined ${sessionId}`);
       } catch (err) {
-        console.error('Session join error:', err);
+        console.error('[Socket] Session join error:', err);
         socket.emit('error', { message: 'Failed to join session' });
       }
     });
 
     // Add track to queue
     socket.on('queue:add', async ({ sessionId, track }) => {
+      console.log(`[Socket] queue:add received:`, { sessionId, track: track.name });
+
       try {
         const session = await sessionStore.addToQueue(sessionId, track);
         if (!session) return;
 
         io.to(sessionId).emit('queue:updated', { queue: session.queue });
-        console.log(`Track added to queue: ${track.name}`);
+        console.log(`[Socket] ✅ Track added: ${track.name}`);
       } catch (err) {
-        console.error('Queue add error:', err);
-        socket.emit('error', { message: 'Failed to add track to queue' });
+        console.error('[Socket] Queue add error:', err);
+        socket.emit('error', { message: 'Failed to add track' });
       }
     });
 
-    // Remove track from queue (host only)
+    // Remove track from queue
     socket.on('queue:remove', async ({ sessionId, queueId }) => {
+      console.log(`[Socket] queue:remove received:`, { sessionId, queueId });
+
       if (!socket.data.isHost) {
-        socket.emit('error', { message: 'Only the host can remove tracks' });
+        console.warn('[Socket] Non-host tried to remove track');
+        socket.emit('error', { message: 'Only host can remove tracks' });
         return;
       }
+
       try {
         const session = await sessionStore.removeFromQueue(sessionId, queueId);
         if (!session) return;
 
         io.to(sessionId).emit('queue:updated', { queue: session.queue });
+        console.log(`[Socket] ✅ Track removed: ${queueId}`);
       } catch (err) {
-        console.error('Queue remove error:', err);
+        console.error('[Socket] Queue remove error:', err);
         socket.emit('error', { message: 'Failed to remove track' });
       }
     });
 
-    // Host: transfer playback to Web SDK device
+    // Transfer playback to device
     socket.on('playback:transferDevice', async ({ sessionId, deviceId }) => {
-      if (!socket.data.isHost) {
-        socket.emit('error', { message: 'Only the host can transfer playback' });
-        return;
-      }
+      console.log(`[Socket] 🎯 playback:transferDevice received:`, {
+        socketId: socket.id,
+        sessionId,
+        deviceId,
+        timestamp: new Date().toISOString()
+      });
 
       try {
         const session = await sessionStore.getById(sessionId);
-        if (!session) return;
+        if (!session) {
+          console.error(`[Socket] Session ${sessionId} not found for device transfer`);
+          return;
+        }
 
+        console.log(`[Socket] Session found, getting valid token...`);
         const token = await getValidToken(session, sessionStore);
-        await spotifyPut('/me/player', token, { device_ids: [deviceId], play: false });
-        await sessionStore.update(sessionId, { hostDeviceId: deviceId });
+        console.log(`[Socket] Token obtained, length: ${token?.length}, preview: ${token?.substring(0, 20)}...`);
 
-        console.log(`Playback transferred to device: ${deviceId}`);
+        console.log(`[Socket] Calling Spotify API PUT /v1/me/player`);
+        console.log(`[Socket] Request body:`, { device_ids: [deviceId], play: false });
+
+        const result = await spotifyPut(
+          '/v1/me/player',
+          { device_ids: [deviceId], play: false },
+          token
+        );
+
+        console.log(`[Socket] Spotify transfer API response:`, {
+          status: result.status,
+          statusText: result.statusText,
+          ok: result.ok,
+          timestamp: new Date().toISOString()
+        });
+
+        if (result.status >= 400) {
+          const errorText = await result.text();
+          console.error(`[Socket] Spotify API error response:`, errorText);
+        }
+
+        // Update session with device ID
+        await sessionStore.update(sessionId, { hostDeviceId: deviceId });
+        console.log(`[Socket] ✅ Device ${deviceId} registered for session ${sessionId}`);
+
         socket.emit('playback:deviceTransferred', { deviceId });
+        console.log(`[Socket] Sent playback:deviceTransferred confirmation`);
       } catch (err) {
-        console.error('Transfer device error:', err);
+        console.error('[Socket] Device transfer error:', err);
+        console.error('[Socket] Error stack:', err.stack);
         socket.emit('error', { message: 'Failed to transfer playback' });
       }
     });
 
-    // Host: play a specific track or resume
-    socket.on('playback:play', async ({ sessionId, uri, deviceId }) => {
-      if (!socket.data.isHost) {
-        socket.emit('error', { message: 'Only the host can control playback' });
-        return;
-      }
+    // Play track
+    socket.on('playback:play', async ({ sessionId, uri }) => {
+      console.log(`[Socket] playback:play received:`, {
+        socketId: socket.id,
+        sessionId,
+        uri,
+        timestamp: new Date().toISOString()
+      });
 
       try {
         const session = await sessionStore.getById(sessionId);
-        if (!session) return;
-
-        const token = await getValidToken(session, sessionStore);
-        const endpoint = deviceId
-          ? `/me/player/play?device_id=${deviceId}`
-          : '/me/player/play';
-
-        const body = uri ? { uris: [uri] } : undefined;
-        await spotifyPut(endpoint, token, body);
-
-        // Update now playing
-        if (uri) {
-          const track = session.queue.find(t => t.uri === uri);
-          if (track) {
-            await sessionStore.update(sessionId, { nowPlaying: track });
-          }
-        }
-
-        const updatedSession = await sessionStore.getById(sessionId);
-        io.to(sessionId).emit('playback:state', {
-          isPlaying: true,
-          nowPlaying: updatedSession.nowPlaying,
-        });
-      } catch (err) {
-        console.error('Play error:', err);
-        socket.emit('error', { message: err.message });
-      }
-    });
-
-    // Host: play next from queue
-    socket.on('playback:next', async ({ sessionId, deviceId }) => {
-      if (!socket.data.isHost) return;
-
-      try {
-        const session = await sessionStore.getById(sessionId);
-        if (!session) return;
-
-        const nextTrack = await sessionStore.popQueue(sessionId);
-        if (!nextTrack) {
-          socket.emit('error', { message: 'Queue is empty' });
+        if (!session) {
+          console.error(`[Socket] Session not found: ${sessionId}`);
           return;
         }
 
         const token = await getValidToken(session, sessionStore);
-        const endpoint = deviceId
-          ? `/me/player/play?device_id=${deviceId}`
-          : '/me/player/play';
+        console.log(`[Socket] Token obtained for play`);
 
-        await spotifyPut(endpoint, token, { uris: [nextTrack.uri] });
-        await sessionStore.update(sessionId, { nowPlaying: nextTrack });
+        console.log(`[Socket] Calling Spotify API PUT /v1/me/player/play`);
+        const result = await spotifyPut(
+          '/v1/me/player/play',
+          { uris: [uri] },
+          token
+        );
 
-        const updatedSession = await sessionStore.getById(sessionId);
-        io.to(sessionId).emit('playback:state', {
-          isPlaying: true,
-          nowPlaying: nextTrack,
+        console.log(`[Socket] Spotify play API response:`, {
+          status: result.status,
+          statusText: result.statusText
         });
-        io.to(sessionId).emit('queue:updated', { queue: updatedSession.queue });
+
+        io.to(sessionId).emit('playback:state', { isPlaying: true });
+        console.log(`[Socket] ✅ Playback started`);
       } catch (err) {
-        console.error('Next error:', err);
-        socket.emit('error', { message: err.message });
+        console.error('[Socket] Playback play error:', err);
+        socket.emit('error', { message: 'Failed to start playback' });
       }
     });
 
-    // Host: pause
+    // Next track
+    socket.on('playback:next', async ({ sessionId }) => {
+      console.log(`[Socket] playback:next received:`, { sessionId });
+
+      try {
+        const session = await sessionStore.getById(sessionId);
+        if (!session || session.queue.length === 0) {
+          console.warn('[Socket] No tracks in queue');
+          return;
+        }
+
+        const token = await getValidToken(session, sessionStore);
+        const nextTrack = session.queue[0];
+        console.log(`[Socket] Playing next track: ${nextTrack.name}`);
+
+        await spotifyPut('/v1/me/player/play', { uris: [nextTrack.uri] }, token);
+        await sessionStore.popQueue(sessionId);
+
+        const updated = await sessionStore.getById(sessionId);
+        io.to(sessionId).emit('queue:updated', { queue: updated.queue });
+        console.log(`[Socket] ✅ Next track playing`);
+      } catch (err) {
+        console.error('[Socket] Playback next error:', err);
+        socket.emit('error', { message: 'Failed to skip track' });
+      }
+    });
+
+    // Pause playback
     socket.on('playback:pause', async ({ sessionId }) => {
-      if (!socket.data.isHost) return;
+      console.log(`[Socket] playback:pause received:`, { sessionId });
 
       try {
         const session = await sessionStore.getById(sessionId);
         if (!session) return;
 
         const token = await getValidToken(session, sessionStore);
-        await spotifyPut('/me/player/pause', token);
+        await spotifyPut('/v1/me/player/pause', {}, token);
 
-        io.to(sessionId).emit('playback:state', {
-          isPlaying: false,
-          nowPlaying: session.nowPlaying,
-        });
+        io.to(sessionId).emit('playback:state', { isPlaying: false });
+        console.log(`[Socket] ✅ Playback paused`);
       } catch (err) {
-        console.error('Pause error:', err);
-        socket.emit('error', { message: err.message });
+        console.error('[Socket] Playback pause error:', err);
+        socket.emit('error', { message: 'Failed to pause' });
       }
     });
 
-    // Host: update token (after refresh on client side)
+    // Update token
     socket.on('auth:updateToken', async ({ sessionId, accessToken, expiresIn }) => {
-      if (!socket.data.isHost) return;
+      console.log(`[Socket] auth:updateToken received:`, { sessionId, expiresIn });
+
       try {
-        await sessionStore.update(sessionId, {
+        const expiry = Date.now() + (expiresIn * 1000);
+        await sessionStore.update(sessionId, { 
           hostToken: accessToken,
-          hostTokenExpiry: Date.now() + (expiresIn || 3600) * 1000,
+          hostTokenExpiry: expiry
         });
+        console.log(`[Socket] ✅ Token updated, expires at ${new Date(expiry).toISOString()}`);
       } catch (err) {
-        console.error('Update token error:', err);
+        console.error('[Socket] Token update error:', err);
       }
     });
 
     // Disconnect
     socket.on('disconnect', async () => {
-      const { sessionId, isHost } = socket.data;
-      
+      console.log(`[Socket] Client disconnected: ${socket.id}`);
+
+      // Clear heartbeat interval
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
         heartbeatInterval = null;
+        console.log('[Socket] Heartbeat interval cleared');
       }
 
+      const { sessionId, isHost, name } = socket.data;
+      
       if (sessionId) {
+        console.log(`[Socket] Cleaning up session ${sessionId} for ${name}`);
+
         try {
-          // Remove participant from DB
           await sessionStore.removeParticipant(sessionId, socket.id);
 
           // If host disconnected, close the room
           if (isHost && roomHosts.get(sessionId) === socket.id) {
-            console.log(`Host disconnected from session ${sessionId}, closing room`);
+            console.log(`[Socket] 🚨 Host disconnected, closing room ${sessionId}`);
             
             roomHosts.delete(sessionId);
             await sessionStore.closeRoom(sessionId);
             
-            // Broadcast to all members that room was closed
             io.to(sessionId).emit('session:ended', { 
               reason: 'Room closed: Host disconnected' 
             });
+            
+            console.log(`[Socket] ✅ Room ${sessionId} closed and participants notified`);
           } else {
-            // Just notify participants update
+            // Just update participants
             const session = await sessionStore.getById(sessionId);
             if (session) {
               io.to(sessionId).emit('session:participants', {
@@ -260,13 +316,13 @@ export function setupSocket(io, sessionStore) {
                   joinedAt: p.joinedAt 
                 })),
               });
+              console.log(`[Socket] Participants list updated`);
             }
           }
         } catch (err) {
-          console.error('Disconnect handling error:', err);
+          console.error('[Socket] Disconnect handling error:', err);
         }
       }
-      console.log(`Socket disconnected: ${socket.id}`);
     });
   });
 }
