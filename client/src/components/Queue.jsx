@@ -28,12 +28,9 @@ export default function Queue({ queue, isHost, onRemove, onPlay }) {
             className="group flex items-center gap-3 p-3 rounded-xl hover:bg-white/[0.04] transition-all animate-slide-in"
             style={{ animationDelay: `${i * 0.05}s` }}
           >
-            {/* Position */}
             <span className="w-6 text-center text-xs text-white/15 font-['JetBrains_Mono'] font-medium shrink-0">
               {i + 1}
             </span>
-
-            {/* Art */}
             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/[0.04]">
               {image ? (
                 <img src={image} alt="" className="w-full h-full object-cover" />
@@ -43,14 +40,10 @@ export default function Queue({ queue, isHost, onRemove, onPlay }) {
                 </div>
               )}
             </div>
-
-            {/* Info */}
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-white truncate">{track.name}</p>
               <p className="text-xs text-white/35 truncate">{artists}</p>
             </div>
-
-            {/* Host Actions */}
             {isHost && (
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button

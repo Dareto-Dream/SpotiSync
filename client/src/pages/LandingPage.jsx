@@ -5,14 +5,12 @@ import { Music, Radio, Users, Zap, Headphones, ArrowRight } from 'lucide-react';
 export default function LandingPage() {
   return (
     <div className="relative min-h-screen flex flex-col">
-      {/* Gradient orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-[40%] -left-[20%] w-[80vw] h-[80vw] rounded-full bg-spotify-green/[0.07] blur-[120px]" />
         <div className="absolute -bottom-[30%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-accent-violet/[0.07] blur-[100px]" />
         <div className="absolute top-[20%] right-[10%] w-[30vw] h-[30vw] rounded-full bg-accent-cyan/[0.05] blur-[80px]" />
       </div>
 
-      {/* Nav */}
       <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-6">
         <div className="flex items-center gap-2">
           <div className="w-10 h-10 rounded-xl bg-spotify-green/20 border border-spotify-green/30 flex items-center justify-center">
@@ -22,7 +20,6 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 text-center max-w-5xl mx-auto">
         <div className="animate-bounce-in">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-glass mb-8">
@@ -60,7 +57,6 @@ export default function LandingPage() {
           </Link>
         </div>
 
-        {/* Features */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-24 w-full max-w-3xl">
           {[
             { icon: Zap, title: 'Real-time Sync', desc: 'Playback synced across all connected devices' },

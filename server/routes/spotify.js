@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { sessionStore } from '../store/sessions.js';
 import { spotifyGet, getValidToken } from '../utils/spotify.js';
 
 const router = Router();
@@ -9,10 +8,12 @@ router.get('/search', async (req, res) => {
   const { q, sessionId, type = 'track', limit = 20 } = req.query;
   if (!q || !sessionId) return res.status(400).json({ error: 'q and sessionId required' });
 
-  const session = sessionStore.getById(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-
   try {
+    const sessionStore = req.app.get('sessionStore');
+    const session = await sessionStore.getById(sessionId);
+    
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
     const token = await getValidToken(session, sessionStore);
     const data = await spotifyGet(
       `/search?q=${encodeURIComponent(q)}&type=${type}&limit=${limit}`,
@@ -30,10 +31,12 @@ router.get('/me', async (req, res) => {
   const { sessionId } = req.query;
   if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
 
-  const session = sessionStore.getById(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-
   try {
+    const sessionStore = req.app.get('sessionStore');
+    const session = await sessionStore.getById(sessionId);
+    
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
     const token = await getValidToken(session, sessionStore);
     const data = await spotifyGet('/me', token);
     res.json(data);
@@ -47,10 +50,12 @@ router.get('/devices', async (req, res) => {
   const { sessionId } = req.query;
   if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
 
-  const session = sessionStore.getById(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-
   try {
+    const sessionStore = req.app.get('sessionStore');
+    const session = await sessionStore.getById(sessionId);
+    
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
     const token = await getValidToken(session, sessionStore);
     const data = await spotifyGet('/me/player/devices', token);
     res.json(data);
@@ -64,10 +69,12 @@ router.get('/player', async (req, res) => {
   const { sessionId } = req.query;
   if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
 
-  const session = sessionStore.getById(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-
   try {
+    const sessionStore = req.app.get('sessionStore');
+    const session = await sessionStore.getById(sessionId);
+    
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
     const token = await getValidToken(session, sessionStore);
     const data = await spotifyGet('/me/player', token);
     res.json(data);

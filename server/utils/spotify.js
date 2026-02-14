@@ -77,7 +77,7 @@ export async function getValidToken(session, sessionStore) {
 
   try {
     const data = await refreshAccessToken(session.hostRefreshToken);
-    sessionStore.update(session.id, {
+    await sessionStore.update(session.id, {
       hostToken: data.access_token,
       hostTokenExpiry: Date.now() + data.expires_in * 1000,
       ...(data.refresh_token && { hostRefreshToken: data.refresh_token }),

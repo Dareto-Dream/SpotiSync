@@ -56,7 +56,6 @@ export default function Search({ sessionId, onAddToQueue }) {
 
   return (
     <div className="space-y-4">
-      {/* Search Input */}
       <div className="relative">
         <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/25" />
         <input
@@ -72,7 +71,6 @@ export default function Search({ sessionId, onAddToQueue }) {
         )}
       </div>
 
-      {/* Results */}
       {results.length === 0 && query && !loading && (
         <div className="text-center py-12">
           <Music2 className="w-8 h-8 text-white/10 mx-auto mb-3" />

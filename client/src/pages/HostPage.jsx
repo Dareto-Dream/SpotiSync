@@ -17,7 +17,6 @@ export default function HostPage() {
   const [copied, setCopied] = useState(false);
   const [profile, setProfile] = useState(null);
 
-  // Extract tokens from URL after Spotify callback
   useEffect(() => {
     const at = searchParams.get('access_token');
     const rt = searchParams.get('refresh_token');
@@ -29,12 +28,10 @@ export default function HostPage() {
       setAccessToken(at);
       setRefreshToken(rt);
       setExpiresIn(ei);
-      // Clean URL
       window.history.replaceState({}, '', '/host');
     }
   }, [searchParams]);
 
-  // Auto-create session when tokens are available
   useEffect(() => {
     if (!accessToken || session) return;
 
@@ -50,7 +47,6 @@ export default function HostPage() {
         if (!res.ok) throw new Error(data.error);
         setSession(data);
 
-        // Get profile
         const profileRes = await fetch(`/api/spotify/me?sessionId=${data.sessionId}`);
         const profileData = await profileRes.json();
         setProfile(profileData);
@@ -75,7 +71,6 @@ export default function HostPage() {
   };
 
   const handleEnterRoom = () => {
-    // Store tokens for the room
     sessionStorage.setItem('spotisync_host', JSON.stringify({
       accessToken,
       refreshToken,
@@ -88,14 +83,12 @@ export default function HostPage() {
 
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center px-6">
-      {/* Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[10%] left-[20%] w-[50vw] h-[50vw] rounded-full bg-spotify-green/[0.06] blur-[120px]" />
         <div className="absolute bottom-[10%] right-[10%] w-[40vw] h-[40vw] rounded-full bg-accent-violet/[0.06] blur-[100px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Logo */}
         <div className="flex items-center gap-2 mb-12">
           <div className="w-10 h-10 rounded-xl bg-spotify-green/20 border border-spotify-green/30 flex items-center justify-center">
             <Radio className="w-5 h-5 text-spotify-green" />
@@ -156,7 +149,6 @@ export default function HostPage() {
               <p className="text-white/40 text-sm">Share this code with your friends to join.</p>
             </div>
 
-            {/* Join Code Display */}
             <div className="relative p-8 rounded-3xl bg-glass-strong text-center">
               <p className="text-xs uppercase tracking-[0.2em] text-white/30 mb-4 font-medium">Join Code</p>
               <div className="font-['JetBrains_Mono'] text-5xl font-bold tracking-[0.3em] text-gradient">

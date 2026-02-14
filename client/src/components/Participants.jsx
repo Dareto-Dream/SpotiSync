@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, User } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 const COLORS = [
   'bg-spotify-green/20 text-spotify-green',

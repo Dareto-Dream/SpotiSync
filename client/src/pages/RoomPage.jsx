@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSocket } from '../context/SocketContext';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
@@ -8,7 +8,7 @@ import Search from '../components/Search';
 import Participants from '../components/Participants';
 import HostControls from '../components/HostControls';
 import {
-  Radio, Search as SearchIcon, ListMusic, Users, Settings,
+  Radio, Search as SearchIcon, ListMusic, Users,
   AlertCircle, Loader2, Copy, Check
 } from 'lucide-react';
 
@@ -21,7 +21,7 @@ const TABS = [
 export default function RoomPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const { socket, connected, connect } = useSocket();
+  const { socket, connected, connect: connectSocket } = useSocket();
 
   const [activeTab, setActiveTab] = useState('search');
   const [queue, setQueue] = useState([]);
@@ -40,14 +40,21 @@ export default function RoomPage() {
   const userName = isHost ? 'Host' : (guestData?.name || 'Guest');
 
   // Spotify Web Playback SDK (host only)
-  const { deviceId, playerState, isReady, togglePlay } = useSpotifyPlayer(
-    isHost ? accessToken : null
-  );
+  const {
+    deviceId,
+    playerState,
+    connectionState,
+    error: playerError,
+    connect: connectPlayer,
+    togglePlay,
+  } = useSpotifyPlayer(isHost ? accessToken : null);
+
+  const deviceTransferredRef = useRef(false);
 
   // Connect socket if not connected
   useEffect(() => {
-    if (!connected) connect();
-  }, [connected, connect]);
+    if (!connected) connectSocket();
+  }, [connected, connectSocket]);
 
   // Join session via socket
   useEffect(() => {
@@ -70,13 +77,19 @@ export default function RoomPage() {
       if (np) setNowPlaying(np);
     });
 
-    socket.on('session:ended', () => {
+    socket.on('session:ended', ({ reason }) => {
+      // Show the reason in an alert or notification
+      alert(reason || 'Session ended');
       navigate('/', { replace: true });
     });
 
     socket.on('error', ({ message }) => {
       setError(message);
       setTimeout(() => setError(null), 5000);
+    });
+
+    socket.on('playback:deviceTransferred', () => {
+      console.log('Device transfer confirmed');
     });
 
     return () => {
@@ -86,6 +99,7 @@ export default function RoomPage() {
       socket.off('playback:state');
       socket.off('session:ended');
       socket.off('error');
+      socket.off('playback:deviceTransferred');
     };
   }, [socket, connected, sessionId, userName, isHost, navigate]);
 
@@ -111,6 +125,29 @@ export default function RoomPage() {
       setIsPlaying(!playerState.paused);
     }
   }, [playerState]);
+
+  // Transfer playback to Web SDK device after connection (fixes Issue #3)
+  useEffect(() => {
+    if (
+      isHost &&
+      deviceId &&
+      connectionState === 'connected' &&
+      !deviceTransferredRef.current &&
+      socket
+    ) {
+      console.log('Transferring playback to Web SDK device:', deviceId);
+      socket.emit('playback:transferDevice', { sessionId, deviceId });
+      deviceTransferredRef.current = true;
+    }
+  }, [isHost, deviceId, connectionState, sessionId, socket]);
+
+  // Handle connect button click (must be user gesture)
+  const handleConnect = useCallback(async () => {
+    const success = await connectPlayer();
+    if (!success) {
+      setError('Failed to connect Web Player. Please try again.');
+    }
+  }, [connectPlayer]);
 
   const addToQueue = useCallback((track) => {
     socket?.emit('queue:add', { sessionId, track });
@@ -188,14 +225,15 @@ export default function RoomPage() {
           {isHost && (
             <HostControls
               isPlaying={isPlaying}
-              isReady={isReady}
+              connectionState={connectionState}
               deviceId={deviceId}
-              sessionId={sessionId}
+              onConnect={handleConnect}
               onPlay={() => playTrack(nowPlaying?.uri)}
               onPause={pausePlayback}
               onNext={playNext}
               onToggle={togglePlay}
               playerState={playerState}
+              error={playerError}
             />
           )}
         </div>

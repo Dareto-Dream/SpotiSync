@@ -39,7 +39,6 @@ body {
   }
 }
 
-/* Noise overlay */
 .noise::before {
   content: '';
   position: fixed;
