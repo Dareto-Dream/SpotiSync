@@ -9,7 +9,7 @@ import {
   getRoomSockets,
   getRoomMembers,
   updateRoomPlaybackState
-} from './room.js';
+} from './modules/room.js';
 import {
   addToQueue,
   getQueue,
@@ -22,8 +22,8 @@ import {
   skipToPrevious,
   seek,
   getCurrentPlayback
-} from './playback.js';
-import { getValidAccessToken } from './auth.js';
+} from './modules/playback.js';
+import { getValidAccessToken } from './modules/auth.js';
 
 const clients = new Map(); // socketId -> { ws, userId, roomCode, isHost }
 
