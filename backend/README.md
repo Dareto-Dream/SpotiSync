@@ -6,20 +6,19 @@ Backend server for Spotify Jam Mode collaborative listening application.
 
 1. Install dependencies:
 ```bash
-npm install
+pip install -r requirements.txt
 ```
 
 2. Configure environment (copy `.env.example` to `.env` and fill in values)
 
 3. Run migrations:
 ```bash
-npm run migrate
+python src/database/migrate.py
 ```
 
 4. Start server:
 ```bash
-npm run dev  # Development with auto-reload
-npm start    # Production
+python src/server.py
 ```
 
 ## Environment Variables
