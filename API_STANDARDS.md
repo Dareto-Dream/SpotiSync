@@ -1,499 +1,571 @@
-# API Standards — SpotiSync
+# API Standards
 
-Complete specification for all HTTP endpoints and WebSocket events in the SpotiSync system.
-
----
-
-## HTTP API Endpoints
+## REST API Endpoints
 
 ### Authentication
 
-#### `GET /api/auth/login`
-Initiates Spotify OAuth flow. Redirects to Spotify authorization.
+#### GET /api/auth/login
+Get Spotify OAuth authorization URL.
 
-**Response**: 302 Redirect to Spotify
+**Query Parameters:**
+- `state` (optional): State parameter for OAuth flow
 
----
-
-#### `GET /api/auth/callback`
-OAuth callback endpoint. Exchanges authorization code for tokens.
-
-**Query Parameters**:
-- `code` (string): Authorization code from Spotify
-- `state` (string): CSRF protection token
-- `error` (string, optional): Error from Spotify
-
-**Response**: 302 Redirect to `/host` with tokens in query params
-
----
-
-#### `GET /api/auth/client-id`
-Returns Spotify client ID for Web Playback SDK.
-
-**Response**:
+**Response:**
 ```json
 {
-  "clientId": "string"
+  "authUrl": "https://accounts.spotify.com/authorize?..."
 }
 ```
 
----
+#### GET /api/auth/callback
+OAuth callback endpoint (redirects to frontend).
 
-### Sessions
+**Query Parameters:**
+- `code`: Authorization code from Spotify
+- `state`: State parameter
 
-#### `POST /api/sessions`
-Creates a new session (host only).
+**Behavior:**
+- Exchanges code for tokens
+- Stores tokens in database
+- Redirects to frontend with user info
 
-**Request Body**:
+#### GET /api/auth/refresh
+Refresh access token for a user.
+
+**Query Parameters:**
+- `userId`: User ID
+
+**Response:**
 ```json
 {
-  "accessToken": "string",
-  "refreshToken": "string",
-  "expiresIn": "number"
+  "accessToken": "BQC..."
 }
 ```
 
-**Response** (201):
+**Errors:**
+- 400: Missing userId
+- 401: Failed to refresh token
+
+#### GET /api/auth/profile
+Get user's Spotify profile.
+
+**Query Parameters:**
+- `userId`: User ID
+
+**Response:**
 ```json
 {
-  "sessionId": "string",
-  "joinCode": "string"
+  "id": "user123",
+  "display_name": "John Doe",
+  "email": "john@example.com",
+  ...
 }
 ```
 
-**Errors**:
-- 400: Missing accessToken
-- 500: Database error
+### Room Management
 
----
+#### POST /api/rooms/create
+Create a new room (host only).
 
-#### `GET /api/sessions/join/:code`
-Looks up session by join code.
-
-**Parameters**:
-- `code` (string): 6-character join code (case-insensitive)
-
-**Response** (200):
+**Request Body:**
 ```json
 {
-  "sessionId": "string",
-  "joinCode": "string",
-  "participantCount": "number",
-  "queueLength": "number",
-  "nowPlaying": "object|null"
+  "hostId": "user123",
+  "displayName": "John Doe"
 }
 ```
 
-**Errors**:
-- 404: Session not found
-- 500: Database error
-
----
-
-#### `GET /api/sessions/:id`
-Gets full session state.
-
-**Parameters**:
-- `id` (string): Session ID
-
-**Response** (200):
+**Response:**
 ```json
 {
-  "sessionId": "string",
-  "joinCode": "string",
-  "queue": "array",
-  "nowPlaying": "object|null",
-  "participants": "array"
+  "roomId": 1,
+  "roomCode": "ABCD12",
+  "hostId": "user123"
 }
 ```
 
-**Errors**:
-- 404: Session not found
+**Errors:**
+- 400: Missing required fields
+- 500: Failed to create room
 
----
+#### GET /api/rooms/:roomCode
+Get room details.
 
-#### `DELETE /api/sessions/:id`
-Ends a session (host only).
-
-**Parameters**:
-- `id` (string): Session ID
-
-**Response** (200):
+**Response:**
 ```json
 {
-  "ok": true
+  "room": {
+    "id": 1,
+    "room_code": "ABCD12",
+    "host_id": "user123",
+    "is_active": true,
+    "current_track_uri": "spotify:track:...",
+    "current_track_position_ms": 45000,
+    "is_playing": true,
+    "device_id": "abc123..."
+  },
+  "members": [...],
+  "queue": [...]
 }
 ```
 
-**Errors**:
-- 404: Session not found
+**Errors:**
+- 404: Room not found
+- 500: Server error
 
----
+#### POST /api/rooms/:roomCode/join
+Join a room as a participant.
 
-### Spotify API Proxy
+**Request Body:**
+```json
+{
+  "userId": "guest_123",
+  "displayName": "Jane Doe"
+}
+```
 
-#### `GET /api/spotify/search`
-Searches Spotify catalog.
+**Response:**
+```json
+{
+  "room": {...},
+  "members": [...]
+}
+```
 
-**Query Parameters**:
-- `q` (string, required): Search query
-- `sessionId` (string, required): Session ID
-- `type` (string): Search type (default: "track")
-- `limit` (number): Result limit (default: 20)
+**Errors:**
+- 400: Missing required fields or room not active
+- 404: Room not found
 
-**Response**: Spotify search results
+### Queue Management
 
-**Errors**:
-- 400: Missing parameters
-- 404: Session not found
-- 401: Spotify auth error
+#### GET /api/rooms/:roomCode/queue
+Get room queue.
 
----
+**Response:**
+```json
+{
+  "queue": [
+    {
+      "id": 1,
+      "track_uri": "spotify:track:...",
+      "track_name": "Song Title",
+      "artist_name": "Artist Name",
+      "album_name": "Album Name",
+      "duration_ms": 210000,
+      "added_by": "user123",
+      "position": 0
+    }
+  ]
+}
+```
 
-#### `GET /api/spotify/me`
-Gets host profile.
+#### POST /api/rooms/:roomCode/queue
+Add track to queue.
 
-**Query Parameters**:
-- `sessionId` (string, required): Session ID
+**Request Body:**
+```json
+{
+  "track": {
+    "uri": "spotify:track:...",
+    "name": "Song Title",
+    "artists": "Artist Name",
+    "album": "Album Name",
+    "durationMs": 210000
+  },
+  "addedBy": "user123"
+}
+```
 
-**Response**: Spotify user profile
+**Response:**
+```json
+{
+  "queue": [...]
+}
+```
 
-**Errors**:
-- 400: Missing sessionId
-- 404: Session not found
+#### DELETE /api/rooms/:roomCode/queue/:queueItemId
+Remove track from queue (host only).
 
----
+**Response:**
+```json
+{
+  "queue": [...]
+}
+```
 
-#### `GET /api/spotify/devices`
-Lists available playback devices.
+### Search
 
-**Query Parameters**:
-- `sessionId` (string, required): Session ID
+#### GET /api/search
+Search Spotify tracks.
 
-**Response**: Spotify devices list
+**Query Parameters:**
+- `q`: Search query
+- `userId`: User ID (for token)
 
----
+**Response:**
+```json
+{
+  "results": [
+    {
+      "uri": "spotify:track:...",
+      "id": "123",
+      "name": "Song Title",
+      "artists": "Artist Name",
+      "album": "Album Name",
+      "albumArt": "https://...",
+      "durationMs": 210000,
+      "previewUrl": "https://..."
+    }
+  ]
+}
+```
 
-#### `GET /api/spotify/player`
-Gets current playback state.
+### Health Check
 
-**Query Parameters**:
-- `sessionId` (string, required): Session ID
+#### GET /api/health
+Server health check.
 
-**Response**: Spotify player state or `null`
+**Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-02-15T12:00:00.000Z"
+}
+```
 
 ---
 
 ## WebSocket Events
 
-### Client → Server
+### Connection
+**URL:** `ws://localhost:3001/ws`
 
-#### `session:join`
-Join a session room.
-
-**Payload**:
+All WebSocket messages follow this format:
 ```json
 {
-  "sessionId": "string",
-  "name": "string",
-  "isHost": "boolean"
+  "type": "event_name",
+  "payload": {...}
 }
 ```
 
-**Server Response**: `session:state` event
+### Client → Server Events
 
----
+#### join_room
+Join a room.
 
-#### `queue:add`
-Add track to queue.
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "sessionId": "string",
+  "roomCode": "ABCD12",
+  "userId": "user123",
+  "displayName": "John Doe",
+  "isHost": false
+}
+```
+
+#### leave_room
+Leave current room.
+
+**Payload:** `{}`
+
+#### heartbeat
+Host heartbeat to keep room alive.
+
+**Payload:** `{}`
+
+#### search_tracks
+Search for tracks.
+
+**Payload:**
+```json
+{
+  "query": "song name"
+}
+```
+
+#### add_to_queue
+Add track to queue.
+
+**Payload:**
+```json
+{
   "track": {
-    "uri": "string",
-    "name": "string",
-    "artists": "array",
-    "album": "object",
-    "duration_ms": "number",
-    "albumArt": "string"
+    "uri": "spotify:track:...",
+    "name": "Song Title",
+    "artists": "Artist Name",
+    "album": "Album Name",
+    "durationMs": 210000
   }
 }
 ```
 
-**Server Response**: `queue:updated` broadcast
-
----
-
-#### `queue:remove`
+#### remove_from_queue
 Remove track from queue (host only).
 
-**Payload**:
+**Payload:**
 ```json
 {
-  "sessionId": "string",
-  "queueId": "string"
+  "queueItemId": 1
 }
 ```
 
-**Server Response**: `queue:updated` broadcast or `error`
+#### playback_control
+Control playback (host only).
 
----
-
-#### `playback:transferDevice`
-Transfer playback to Web SDK device (host only).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "sessionId": "string",
-  "deviceId": "string"
+  "action": "play|pause|next|previous|seek",
+  "deviceId": "abc123...",
+  "trackUri": "spotify:track:..." (optional),
+  "positionMs": 45000 (optional)
 }
 ```
 
-**Server Response**: `playback:deviceTransferred` or `error`
+#### sync_playback
+Sync playback state (host only).
 
----
-
-#### `playback:play`
-Start playback of specific track or resume (host only).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "sessionId": "string",
-  "uri": "string|null",
-  "deviceId": "string"
+  "state": {
+    "trackUri": "spotify:track:...",
+    "positionMs": 45000,
+    "isPlaying": true,
+    "deviceId": "abc123..."
+  }
 }
 ```
 
-**Server Response**: `playback:state` broadcast
+#### transfer_device
+Transfer playback to device (host only).
 
----
-
-#### `playback:next`
-Play next track from queue (host only).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "sessionId": "string",
-  "deviceId": "string"
+  "deviceId": "abc123..."
 }
 ```
 
-**Server Response**: `playback:state` and `queue:updated` broadcast
+#### request_token
+Request fresh access token.
 
----
+**Payload:** `{}`
 
-#### `playback:pause`
-Pause playback (host only).
+### Server → Client Events
 
-**Payload**:
+#### room_joined
+Confirmation of room join.
+
+**Payload:**
 ```json
 {
-  "sessionId": "string"
+  "roomCode": "ABCD12",
+  "room": {...},
+  "members": [...],
+  "queue": [...]
 }
 ```
 
-**Server Response**: `playback:state` broadcast
+#### member_joined
+New member joined room.
 
----
-
-#### `auth:updateToken`
-Update host's access token (host only).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "sessionId": "string",
-  "accessToken": "string",
-  "expiresIn": "number"
+  "userId": "user123",
+  "displayName": "John Doe",
+  "isHost": false
 }
 ```
 
----
+#### member_left
+Member left room.
 
-### Server → Client
-
-#### `session:state`
-Initial session state sent to joining client.
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "queue": "array",
-  "nowPlaying": "object|null",
-  "participants": "array"
+  "userId": "user123"
 }
 ```
 
----
+#### queue_updated
+Queue was updated.
 
-#### `session:participants`
-Participant list update (broadcast).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "participants": [
-    {
-      "name": "string",
-      "joinedAt": "number"
-    }
-  ]
+  "queue": [...]
 }
 ```
 
----
+#### playback_state
+Synced playback state from host.
 
-#### `session:ended`
-Session closed notification (broadcast).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "reason": "string"
+  "trackUri": "spotify:track:...",
+  "positionMs": 45000,
+  "isPlaying": true,
+  "deviceId": "abc123..."
 }
 ```
 
-**Reasons**:
-- "Room closed: Host disconnected"
-- "Host ended the session"
+#### playback_changed
+Playback control action performed.
 
----
-
-#### `queue:updated`
-Queue changed (broadcast).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "queue": [
-    {
-      "queueId": "string",
-      "uri": "string",
-      "name": "string",
-      "artists": "array",
-      "album": "object",
-      "duration_ms": "number",
-      "albumArt": "string",
-      "addedAt": "number"
-    }
-  ]
+  "action": "play|pause|next|previous|seek",
+  "deviceId": "abc123...",
+  "trackUri": "spotify:track:...",
+  "positionMs": 45000
 }
 ```
 
----
+#### room_closed
+Room was closed.
 
-#### `playback:state`
-Playback state changed (broadcast).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "isPlaying": "boolean",
-  "nowPlaying": "object|null"
+  "reason": "Host disconnected"
 }
 ```
 
----
+#### device_transferred
+Device transfer completed.
 
-#### `playback:deviceTransferred`
-Device transfer confirmed (to requesting client only).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "deviceId": "string"
+  "deviceId": "abc123..."
 }
 ```
 
----
+#### token_response
+Fresh access token.
 
-#### `error`
-Error message (to requesting client only).
-
-**Payload**:
+**Payload:**
 ```json
 {
-  "message": "string"
+  "accessToken": "BQC..."
 }
 ```
 
-**Common Errors**:
-- "Session not found"
-- "Only the host can control playback"
-- "Only the host can remove tracks"
-- "Queue is empty"
-- "Failed to connect to Spotify"
+#### search_results
+Search results.
+
+**Payload:**
+```json
+{
+  "results": [...]
+}
+```
+
+#### error
+Error message.
+
+**Payload:**
+```json
+{
+  "message": "Error description"
+}
+```
 
 ---
 
 ## Room Lifecycle Rules
 
 ### Room Creation
-1. Host calls `POST /api/sessions` with Spotify tokens
-2. Server creates room in database with `active` status
-3. Server returns session ID and join code
-4. Room marked with initial heartbeat timestamp
+1. Host authenticates with Spotify
+2. POST /api/rooms/create
+3. Room inserted into PostgreSQL with unique code
+4. Room marked as active
+5. Host is first member
 
 ### Room Active State
-1. Host joins via WebSocket (`session:join` with `isHost: true`)
-2. Server updates heartbeat every 5 seconds while host is connected
-3. Members can join while `status = 'active'`
+- Host maintains connection via WebSocket
+- Heartbeat sent every 5 seconds
+- `last_heartbeat` timestamp updated in database
+- Room remains active while heartbeat continues
+
+### Member Joining
+1. Participant enters room code
+2. POST /api/rooms/:roomCode/join validates room is active
+3. Member added to room_members table
+4. WebSocket connection established
+5. Initial state synced to member
 
 ### Room Closure Triggers
-1. **Host Disconnect**: WebSocket disconnect from host socket
-   - Server sets `status = 'closed'`
-   - Server deletes all members and queue items
-   - Server broadcasts `session:ended` with reason "Room closed: Host disconnected"
-   - All clients are forced back to lobby
+1. **Host Disconnects:**
+   - WebSocket connection closes
+   - Heartbeat stops
+   - Room marked inactive in database
+   - All members removed
+   - Broadcast "room_closed" to all clients
 
-2. **Heartbeat Timeout**: Room heartbeat not updated for 30 seconds
-   - Background job detects stale room
-   - Server closes room (same as host disconnect)
-   - Broadcasts closure message to all clients
+2. **Host Timeout:**
+   - No heartbeat for 15 seconds (configurable)
+   - Cleanup process marks room inactive
+   - All members disconnected
 
-3. **Manual Close**: Host calls `DELETE /api/sessions/:id`
-   - Server closes room gracefully
-   - Broadcasts "Host ended the session"
+3. **Server Restart:**
+   - On startup, check for stale rooms
+   - Rooms with old `last_heartbeat` marked inactive
+   - No ghost rooms remain
 
-### Server Restart Recovery
-- On startup, server checks for rooms with stale heartbeats (>60s)
-- Closes all stale rooms to prevent ghost rooms
-- No rooms persist without active heartbeat
-
-### Database Consistency
-- All room state stored in PostgreSQL
-- In-memory tracking of which socket is host per room
-- Room closure cascades delete to `room_members` and `queue_items`
-- Old rooms (>4 hours) cleaned up periodically
+### Member Leaving
+- WebSocket disconnect or explicit leave
+- Member removed from room_members
+- Broadcast to remaining members
+- Room continues if host remains
 
 ---
 
 ## Error Codes
 
-| HTTP Code | Meaning |
-|-----------|---------|
-| 200 | Success |
-| 201 | Created |
-| 204 | No Content (Spotify API) |
-| 400 | Bad Request (missing parameters) |
-| 401 | Unauthorized (Spotify token issues) |
-| 404 | Not Found (session doesn't exist) |
-| 500 | Internal Server Error |
+### HTTP Status Codes
+- 200: Success
+- 201: Created
+- 204: No Content
+- 400: Bad Request (missing parameters, invalid data)
+- 401: Unauthorized (invalid token)
+- 404: Not Found (room doesn't exist)
+- 500: Internal Server Error
 
-## Rate Limits
+### WebSocket Error Types
+All WebSocket errors sent via `error` event with descriptive message.
 
-- WebSocket heartbeat: Every 5 seconds
-- Stale room check: Every 10 seconds
-- Old room cleanup: Every 30 minutes
-- Spotify API: Subject to Spotify's rate limits
+Common errors:
+- "Room not found"
+- "Room is not active"
+- "Not in a room"
+- "Only host can control playback"
+- "Only host can remove from queue"
+- "Failed to search tracks"
+- "Failed to control playback"
+- "Not connected"
 
-## Authentication
+---
 
-- Host: Requires valid Spotify Premium account OAuth token
-- Guest: No authentication required
-- All Spotify API calls use host's token with automatic refresh
+## Rate Limits & Constraints
+
+### Database Constraints
+- Room codes: 6 characters, alphanumeric (no ambiguous chars)
+- Display names: Max 255 characters
+- Queue position: Auto-incrementing integers
+- Track URIs: Max 255 characters
+
+### Timing
+- Heartbeat interval: 5 seconds (configurable)
+- Room timeout: 15 seconds (configurable)
+- Token refresh: 5 minutes before expiry
+
+### Playback
+- Requires Spotify Premium (host only)
+- Web Playback SDK requires user gesture to connect
+- Device transfer may take 1-2 seconds
+- Sync accuracy: Best-effort, typically <1 second

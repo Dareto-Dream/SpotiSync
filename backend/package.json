@@ -1,0 +1,21 @@
+{
+  "name": "spotify-jam-backend",
+  "version": "1.0.0",
+  "description": "Backend server for Spotify Jam Mode",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/database/migrate.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "ws": "^8.16.0",
+    "pg": "^8.11.3",
+    "dotenv": "^16.4.1",
+    "axios": "^1.6.7",
+    "nanoid": "^5.0.5"
+  }
+}
