@@ -90,4 +90,14 @@ async def get_client():
     return connection, release
 
 
-__all__ = ["query", "execute", "get_client", "init_db", "close_db"]
+async def run_in_tx(fn):
+    """Run an async callback inside a single DB transaction."""
+    conn, release = await get_client()
+    try:
+        async with conn.transaction():
+            return await fn(conn)
+    finally:
+        await release()
+
+
+__all__ = ["query", "execute", "get_client", "run_in_tx", "init_db", "close_db"]

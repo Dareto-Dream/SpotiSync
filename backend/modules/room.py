@@ -10,6 +10,28 @@ ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 active_rooms = {}  # room_code -> { host_socket_id, member_sockets: set }
 
 
+
+async def assert_room_host(room_code: str, host_id: str):
+    room = await get_room_by_code(room_code)
+    if not room:
+        raise Exception('Room not found')
+    if room['host_id'] != host_id:
+        raise Exception('Only the host can perform this action')
+    if not room['is_active']:
+        raise Exception('Room is not active')
+    return room
+
+
+async def set_room_device(room_code: str, device_id: str | None):
+    await query(
+        """
+        UPDATE rooms
+        SET device_id = $1
+        WHERE room_code = $2
+        """,
+        [device_id, room_code],
+    )
+
 def _generate_room_code(length=6):
     return ''.join(random.choice(ALPHABET) for _ in range(length))
 
