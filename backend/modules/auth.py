@@ -1,12 +1,11 @@
-import base64
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
-import httpx
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import MemoryCacheHandler
 from database.db import query
-
-SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
-SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
 
 REQUIRED_SCOPES = ' '.join(
     [
@@ -22,52 +21,36 @@ REQUIRED_SCOPES = ' '.join(
 )
 
 
-def get_authorization_url(state: str):
-    params = {
-        'client_id': os.getenv('SPOTIFY_CLIENT_ID'),
-        'response_type': 'code',
-        'redirect_uri': os.getenv('SPOTIFY_REDIRECT_URI'),
-        'scope': REQUIRED_SCOPES,
-        'state': state or 'default',
-        'show_dialog': 'false',
-    }
+def _get_oauth():
+    return SpotifyOAuth(
+        client_id=os.getenv('SPOTIFY_CLIENT_ID'),
+        client_secret=os.getenv('SPOTIFY_CLIENT_SECRET'),
+        redirect_uri=os.getenv('SPOTIFY_REDIRECT_URI'),
+        scope=REQUIRED_SCOPES,
+        cache_handler=MemoryCacheHandler(),
+        show_dialog=False,
+    )
 
-    query_string = httpx.QueryParams(params)
-    return f"{SPOTIFY_AUTH_URL}?{query_string}"
+
+def _get_spotify_client(access_token: str):
+    return spotipy.Spotify(auth=access_token, requests_timeout=20)
+
+
+def get_authorization_url(state: str):
+    oauth = _get_oauth()
+    return oauth.get_authorize_url(state=state or 'default', show_dialog=False)
 
 
 async def exchange_code_for_tokens(code: str):
-    auth_string = base64.b64encode(
-        f"{os.getenv('SPOTIFY_CLIENT_ID')}:{os.getenv('SPOTIFY_CLIENT_SECRET')}".encode('utf-8')
-    ).decode('utf-8')
-
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                SPOTIFY_TOKEN_URL,
-                data={
-                    'grant_type': 'authorization_code',
-                    'code': code,
-                    'redirect_uri': os.getenv('SPOTIFY_REDIRECT_URI'),
-                },
-                headers={
-                    'Authorization': f"Basic {auth_string}",
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-            )
-            response.raise_for_status()
+        oauth = _get_oauth()
+        token_data = await asyncio.to_thread(oauth.get_access_token, code, as_dict=True)
+        access_token = token_data['access_token']
+        refresh_token = token_data.get('refresh_token')
+        expires_in = token_data['expires_in']
 
-            token_data = response.json()
-            access_token = token_data['access_token']
-            refresh_token = token_data['refresh_token']
-            expires_in = token_data['expires_in']
-
-            profile_response = await client.get(
-                'https://api.spotify.com/v1/me',
-                headers={'Authorization': f"Bearer {access_token}"},
-            )
-            profile_response.raise_for_status()
-            profile = profile_response.json()
+        spotify = _get_spotify_client(access_token)
+        profile = await asyncio.to_thread(spotify.current_user)
 
         user_id = profile['id']
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
@@ -94,8 +77,7 @@ async def exchange_code_for_tokens(code: str):
             'profile': profile,
         }
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Token exchange error:', error_message)
+        print('Token exchange error:', exc)
         raise Exception('Failed to exchange authorization code')
 
 
@@ -110,21 +92,8 @@ async def refresh_access_token(user_id: str):
             raise Exception('No refresh token found for user')
 
         refresh_token = result.rows[0]['refresh_token']
-        auth_string = base64.b64encode(
-            f"{os.getenv('SPOTIFY_CLIENT_ID')}:{os.getenv('SPOTIFY_CLIENT_SECRET')}".encode('utf-8')
-        ).decode('utf-8')
-
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                SPOTIFY_TOKEN_URL,
-                data={'grant_type': 'refresh_token', 'refresh_token': refresh_token},
-                headers={
-                    'Authorization': f"Basic {auth_string}",
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-            )
-            response.raise_for_status()
-            token_data = response.json()
+        oauth = _get_oauth()
+        token_data = await asyncio.to_thread(oauth.refresh_access_token, refresh_token)
 
         access_token = token_data['access_token']
         expires_in = token_data['expires_in']
@@ -145,8 +114,7 @@ async def refresh_access_token(user_id: str):
 
         return {'accessToken': access_token, 'expiresAt': expires_at}
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Token refresh error:', error_message)
+        print('Token refresh error:', exc)
         raise Exception('Failed to refresh access token')
 
 
@@ -182,14 +150,8 @@ async def get_valid_access_token(user_id: str):
 
 async def get_user_profile(access_token: str):
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(
-                'https://api.spotify.com/v1/me',
-                headers={'Authorization': f"Bearer {access_token}"},
-            )
-            response.raise_for_status()
-            return response.json()
+        spotify = _get_spotify_client(access_token)
+        return await asyncio.to_thread(spotify.current_user)
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error fetching user profile:', error_message)
+        print('Error fetching user profile:', exc)
         raise

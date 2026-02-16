@@ -1,7 +1,12 @@
-import httpx
+import asyncio
+import spotipy
 
 from database.db import query
 from modules.room import get_room_by_code
+
+
+def _get_spotify_client(access_token: str):
+    return spotipy.Spotify(auth=access_token, requests_timeout=20)
 
 
 async def add_to_queue(room_code: str, track: dict, added_by: str):
@@ -124,165 +129,92 @@ async def clear_queue(room_code: str):
 
 async def transfer_playback(access_token: str, device_id: str):
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.put(
-                'https://api.spotify.com/v1/me/player',
-                json={'device_ids': [device_id], 'play': False},
-                headers={
-                    'Authorization': f"Bearer {access_token}",
-                    'Content-Type': 'application/json',
-                },
-            )
+        spotify = _get_spotify_client(access_token)
+        await asyncio.to_thread(spotify.transfer_playback, device_id=device_id, force_play=False)
 
         print(f"Transferred playback to device {device_id}")
         return True
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error transferring playback:', error_message)
+        print('Error transferring playback:', exc)
         raise
 
 
 async def play(access_token: str, device_id: str, track_uri: str = None, position_ms: int = 0):
     try:
-        body = {'uris': [track_uri], 'position_ms': position_ms} if track_uri else {}
-        url = 'https://api.spotify.com/v1/me/player/play'
-        if device_id:
-            url = f"{url}?device_id={device_id}"
-
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.put(
-                url,
-                json=body,
-                headers={
-                    'Authorization': f"Bearer {access_token}",
-                    'Content-Type': 'application/json',
-                },
+        spotify = _get_spotify_client(access_token)
+        if track_uri:
+            await asyncio.to_thread(
+                spotify.start_playback,
+                device_id=device_id,
+                uris=[track_uri],
+                position_ms=position_ms,
             )
+        else:
+            await asyncio.to_thread(spotify.start_playback, device_id=device_id)
 
         return True
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error starting playback:', error_message)
+        print('Error starting playback:', exc)
         raise
 
 
 async def pause(access_token: str, device_id: str = None):
     try:
-        url = 'https://api.spotify.com/v1/me/player/pause'
-        if device_id:
-            url = f"{url}?device_id={device_id}"
-
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.put(
-                url,
-                json={},
-                headers={
-                    'Authorization': f"Bearer {access_token}",
-                    'Content-Type': 'application/json',
-                },
-            )
+        spotify = _get_spotify_client(access_token)
+        await asyncio.to_thread(spotify.pause_playback, device_id=device_id)
 
         return True
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error pausing playback:', error_message)
+        print('Error pausing playback:', exc)
         raise
 
 
 async def skip_to_next(access_token: str, device_id: str = None):
     try:
-        url = 'https://api.spotify.com/v1/me/player/next'
-        if device_id:
-            url = f"{url}?device_id={device_id}"
-
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.post(
-                url,
-                json={},
-                headers={
-                    'Authorization': f"Bearer {access_token}",
-                    'Content-Type': 'application/json',
-                },
-            )
+        spotify = _get_spotify_client(access_token)
+        await asyncio.to_thread(spotify.next_track, device_id=device_id)
 
         return True
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error skipping to next:', error_message)
+        print('Error skipping to next:', exc)
         raise
 
 
 async def skip_to_previous(access_token: str, device_id: str = None):
     try:
-        url = 'https://api.spotify.com/v1/me/player/previous'
-        if device_id:
-            url = f"{url}?device_id={device_id}"
-
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.post(
-                url,
-                json={},
-                headers={
-                    'Authorization': f"Bearer {access_token}",
-                    'Content-Type': 'application/json',
-                },
-            )
+        spotify = _get_spotify_client(access_token)
+        await asyncio.to_thread(spotify.previous_track, device_id=device_id)
 
         return True
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error skipping to previous:', error_message)
+        print('Error skipping to previous:', exc)
         raise
 
 
 async def seek(access_token: str, position_ms: int, device_id: str = None):
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.put(
-                'https://api.spotify.com/v1/me/player/seek',
-                params={'position_ms': position_ms, **({'device_id': device_id} if device_id else {})},
-                headers={
-                    'Authorization': f"Bearer {access_token}",
-                    'Content-Type': 'application/json',
-                },
-            )
+        spotify = _get_spotify_client(access_token)
+        await asyncio.to_thread(spotify.seek_track, position_ms, device_id=device_id)
 
         return True
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error seeking:', error_message)
+        print('Error seeking:', exc)
         raise
 
 
 async def get_current_playback(access_token: str):
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(
-                'https://api.spotify.com/v1/me/player',
-                headers={'Authorization': f"Bearer {access_token}"},
-            )
-
-        if response.status_code == 204:
-            return None
-
-        response.raise_for_status()
-        return response.json()
+        spotify = _get_spotify_client(access_token)
+        return await asyncio.to_thread(spotify.current_playback)
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error getting current playback:', error_message)
+        print('Error getting current playback:', exc)
         raise
 
 
 async def search_tracks(access_token: str, query: str, limit: int = 20):
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(
-                'https://api.spotify.com/v1/search',
-                params={'q': query, 'type': 'track', 'limit': limit},
-                headers={'Authorization': f"Bearer {access_token}"},
-            )
-            response.raise_for_status()
-            data = response.json()
+        spotify = _get_spotify_client(access_token)
+        data = await asyncio.to_thread(spotify.search, q=query, type='track', limit=limit)
 
         return [
             {
@@ -298,6 +230,5 @@ async def search_tracks(access_token: str, query: str, limit: int = 20):
             for track in data['tracks']['items']
         ]
     except Exception as exc:
-        error_message = getattr(getattr(exc, 'response', None), 'text', None) or str(exc)
-        print('Error searching tracks:', error_message)
+        print('Error searching tracks:', exc)
         raise
