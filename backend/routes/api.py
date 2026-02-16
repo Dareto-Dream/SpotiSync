@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import RedirectResponse
 
 from modules.auth import (
     get_authorization_url,
@@ -30,10 +31,9 @@ frontend_url = os.getenv("FRONTEND_URL") or "http://localhost:3000"
 
 # Auth routes
 @router.get("/auth/login")
-async def auth_login(request: Request):
-    state = request.query_params.get("state") or "default"
+async def auth_login(state: str | None = None):
     auth_url = get_authorization_url(state)
-    return {"authUrl": auth_url}
+    return RedirectResponse(auth_url, status_code=302)
 
 @router.get("/auth/callback")
 async def auth_callback(request: Request):
