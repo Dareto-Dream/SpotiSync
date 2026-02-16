@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotipy.cache_handler import MemoryCacheHandler
 from database.db import query
+
 
 REQUIRED_SCOPES = ' '.join(
     [
@@ -21,14 +21,18 @@ REQUIRED_SCOPES = ' '.join(
 )
 
 
+# IMPORTANT:
+# No MemoryCacheHandler in cloud environments.
+# OAuth state must not rely on process memory.
 def _get_oauth():
     return SpotifyOAuth(
         client_id=os.getenv('SPOTIFY_CLIENT_ID'),
         client_secret=os.getenv('SPOTIFY_CLIENT_SECRET'),
         redirect_uri=os.getenv('SPOTIFY_REDIRECT_URI'),
         scope=REQUIRED_SCOPES,
-        cache_handler=MemoryCacheHandler(),
         show_dialog=False,
+        open_browser=False,
+        cache_handler=None,  # critical fix
     )
 
 
@@ -36,15 +40,22 @@ def _get_spotify_client(access_token: str):
     return spotipy.Spotify(auth=access_token, requests_timeout=20)
 
 
+# ---------- LOGIN ----------
+
 def get_authorization_url(state: str):
     oauth = _get_oauth()
-    return oauth.get_authorize_url(state=state or 'default', show_dialog=False)
+    return oauth.get_authorize_url(state=state or 'default')
 
+
+# ---------- TOKEN EXCHANGE ----------
 
 async def exchange_code_for_tokens(code: str):
     try:
         oauth = _get_oauth()
-        token_data = await asyncio.to_thread(oauth.get_access_token, code, as_dict=True)
+
+        # modern spotipy returns dict already
+        token_data = await asyncio.to_thread(oauth.get_access_token, code)
+
         access_token = token_data['access_token']
         refresh_token = token_data.get('refresh_token')
         expires_in = token_data['expires_in']
@@ -76,10 +87,13 @@ async def exchange_code_for_tokens(code: str):
             'expiresAt': expires_at,
             'profile': profile,
         }
+
     except Exception as exc:
         print('Token exchange error:', exc)
         raise Exception('Failed to exchange authorization code')
 
+
+# ---------- REFRESH ----------
 
 async def refresh_access_token(user_id: str):
     try:
@@ -92,12 +106,17 @@ async def refresh_access_token(user_id: str):
             raise Exception('No refresh token found for user')
 
         refresh_token = result.rows[0]['refresh_token']
+
         oauth = _get_oauth()
-        token_data = await asyncio.to_thread(oauth.refresh_access_token, refresh_token)
+        token_data = await asyncio.to_thread(
+            oauth.refresh_access_token,
+            refresh_token
+        )
 
         access_token = token_data['access_token']
         expires_in = token_data['expires_in']
         new_refresh_token = token_data.get('refresh_token')
+
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
         await query(
@@ -113,10 +132,13 @@ async def refresh_access_token(user_id: str):
         )
 
         return {'accessToken': access_token, 'expiresAt': expires_at}
+
     except Exception as exc:
         print('Token refresh error:', exc)
         raise Exception('Failed to refresh access token')
 
+
+# ---------- TOKEN VALIDATION ----------
 
 async def get_valid_access_token(user_id: str):
     try:
@@ -130,23 +152,30 @@ async def get_valid_access_token(user_id: str):
 
         access_token = result.rows[0]['access_token']
         expires_at = result.rows[0]['expires_at']
-        now = datetime.utcnow()
 
+        now = datetime.now(timezone.utc)
+
+        # normalize DB timestamps
         if isinstance(expires_at, str):
             expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-        if getattr(expires_at, 'tzinfo', None) is not None:
-            expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
 
-        if (expires_at - now).total_seconds() < 5 * 60:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        # refresh 5 minutes early
+        if (expires_at - now).total_seconds() < 300:
             print('Token expiring soon, refreshing...')
             refreshed = await refresh_access_token(user_id)
             return refreshed['accessToken']
 
         return access_token
+
     except Exception as exc:
         print('Error getting valid access token:', exc)
         raise
 
+
+# ---------- PROFILE ----------
 
 async def get_user_profile(access_token: str):
     try:
