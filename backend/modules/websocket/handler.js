@@ -37,20 +37,31 @@ function getActiveMemberCount(roomId) {
 
 function setupWebSocket(wss) {
   wss.on('connection', async (ws, req) => {
-    // Extract token from query string
+    // Allow upgrade with no auth; authenticate after socket opens.
     const url = new URL(req.url, 'http://localhost');
     const token = url.searchParams.get('token');
-    const user = verifyWsToken(token);
 
-    if (!user) {
-      sendTo(ws, S2C.ERROR, { code: 'AUTH_FAILED', message: 'Invalid token' });
-      return ws.close(4001, 'Unauthorized');
-    }
-
-    ws._userId = user.sub;
-    ws._username = user.username;
+    ws._userId = null;
+    ws._username = null;
     ws._roomId = null;
+    ws._isHost = false;
     ws._isAlive = true;
+
+    const tryAuth = (candidate) => {
+      const user = verifyWsToken(candidate);
+      if (!user) return false;
+      ws._userId = user.sub;
+      ws._username = user.username;
+      ws._isHost = false;
+      sendTo(ws, S2C.CONNECTED, { userId: user.sub, username: user.username });
+      return true;
+    };
+
+    if (token) {
+      tryAuth(token); // best-effort; if fails, client can send AUTH later
+    } else {
+      sendTo(ws, S2C.AUTH_REQUIRED, { message: 'Send auth event with token' });
+    }
 
     ws.on('pong', () => { ws._isAlive = true; });
 
@@ -61,13 +72,11 @@ function setupWebSocket(wss) {
       } catch {
         return sendTo(ws, S2C.ERROR, { code: 'INVALID_MSG', message: 'Invalid JSON' });
       }
-      await handleMessage(ws, msg);
+      await handleMessage(ws, msg, tryAuth);
     });
 
     ws.on('close', () => handleDisconnect(ws));
     ws.on('error', (err) => console.error('[WS] Error for user', ws._userId, err.message));
-
-    sendTo(ws, S2C.CONNECTED, { userId: user.sub, username: user.username });
   });
 
   // Ping/pong heartbeat to detect dead connections
@@ -82,8 +91,24 @@ function setupWebSocket(wss) {
   wss.on('close', () => clearInterval(pingInterval));
 }
 
-async function handleMessage(ws, msg) {
+async function handleMessage(ws, msg, tryAuth) {
   const { event, data = {} } = msg;
+
+  if (!ws._userId && event !== C2S.AUTH) {
+    return sendTo(ws, S2C.AUTH_REQUIRED, { message: 'Authenticate first with { event: "auth", data: { token } }' });
+  }
+
+  if (event === C2S.AUTH) {
+    if (ws._userId) return sendTo(ws, S2C.ERROR, { code: 'ALREADY_AUTH', message: 'Already authenticated' });
+    if (!data?.token) return sendTo(ws, S2C.ERROR, { code: 'MISSING_TOKEN', message: 'Token required' });
+    const ok = tryAuth(data.token);
+    if (!ok) {
+      sendTo(ws, S2C.ERROR, { code: 'AUTH_FAILED', message: 'Invalid or expired token' });
+      return ws.close(4001, 'Unauthorized');
+    }
+    return;
+  }
+
   const userId = ws._userId;
   const username = ws._username;
 

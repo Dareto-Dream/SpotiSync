@@ -4,6 +4,7 @@
  */
 
 const C2S = {
+  AUTH: 'auth',
   // Room lifecycle
   JOIN_ROOM: 'join_room',
   LEAVE_ROOM: 'leave_room',
@@ -32,6 +33,7 @@ const C2S = {
 
 const S2C = {
   // Connection
+  AUTH_REQUIRED: 'auth_required',
   CONNECTED: 'connected',
   ERROR: 'error',
   ROOM_STATE: 'room_state',
