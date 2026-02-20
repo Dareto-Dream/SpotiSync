@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Music4 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import styles from './AuthPage.module.css';
@@ -30,7 +31,7 @@ export default function AuthPage() {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <div className={styles.logo}>🎵</div>
+        <div className={styles.logo}><Music4 size={24} strokeWidth={1.75} /></div>
         <h1 className={styles.title}>Jam Mode</h1>
         <p className={styles.sub}>Collaborative listening with friends</p>
 

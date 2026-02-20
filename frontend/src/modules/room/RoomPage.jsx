@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import { useAuth } from '../../context/AuthContext';
 import Player from '../player/Player';
@@ -14,8 +15,8 @@ export default function RoomPage() {
   const { code } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { room, isHost, error, connected, joinRoom, leaveRoom, votes, send } = useRoom();
-  const [tab, setTab] = useState('queue'); // queue | search | members
+  const { room, isHost, error, joinRoom, leaveRoom, votes } = useRoom();
+  const [tab, setTab] = useState('queue');
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -59,7 +60,7 @@ export default function RoomPage() {
       {/* Header */}
       <header className={styles.header}>
         <div className={styles.roomInfo}>
-          <span className={styles.brand}>🎵 Jam Mode</span>
+          <span className={styles.brand}><Music4 size={18} /> Jam Mode</span>
           <div className={styles.code}>
             <span className={styles.codeLabel}>Code</span>
             <span className={styles.codeValue}>{room?.joinCode}</span>
@@ -67,7 +68,9 @@ export default function RoomPage() {
               className="btn-icon"
               onClick={() => navigator.clipboard?.writeText(room?.joinCode)}
               title="Copy code"
-            >📋</button>
+            >
+              <Copy size={16} />
+            </button>
           </div>
         </div>
         <div className={styles.headerRight}>
@@ -75,10 +78,12 @@ export default function RoomPage() {
             <button
               className="btn btn-secondary"
               onClick={() => setShowSettings(s => !s)}
-            >⚙ Settings</button>
+            >
+              <Settings size={16} /> Settings
+            </button>
           )}
           <button className="btn btn-secondary" onClick={handleLeave}>
-            {isHost ? '🚪 Close Room' : '🚪 Leave'}
+            <DoorOpen size={16} /> {isHost ? 'Close Room' : 'Leave'}
           </button>
         </div>
       </header>
@@ -100,7 +105,8 @@ export default function RoomPage() {
           {votes && <VoteBar />}
           {!isHost && (
             <div className={styles.muteNote}>
-              💡 Use the mute button for local silence. Only the host can pause.
+              <Info size={14} style={{ marginRight: 6 }} />
+              Use the mute button for local silence. Only the host can pause.
             </div>
           )}
         </div>
@@ -111,15 +117,21 @@ export default function RoomPage() {
             <button
               className={`${styles.tabBtn} ${tab === 'search' ? styles.active : ''}`}
               onClick={() => setTab('search')}
-            >🔍 Search</button>
+            >
+              <SearchIcon size={15} /> Search
+            </button>
             <button
               className={`${styles.tabBtn} ${tab === 'queue' ? styles.active : ''}`}
               onClick={() => setTab('queue')}
-            >📋 Queue</button>
+            >
+              <ListMusic size={15} /> Queue
+            </button>
             <button
               className={`${styles.tabBtn} ${tab === 'members' ? styles.active : ''}`}
               onClick={() => setTab('members')}
-            >👥 People</button>
+            >
+              <Users size={15} /> People
+            </button>
           </div>
 
           <div className={styles.tabContent}>

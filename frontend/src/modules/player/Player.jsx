@@ -1,4 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  VolumeX,
+  Volume2,
+  SkipBack,
+  SkipForward,
+  Play,
+  Pause,
+  Image,
+  Clapperboard,
+  Lock,
+  PlayCircle,
+  Music2,
+  Gavel,
+} from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import { useYouTubePlayer } from './useYouTubePlayer';
 import styles from './Player.module.css';
@@ -110,7 +124,7 @@ export default function Player() {
             <img src={track.thumbnailUrl} alt={track.title} className={styles.artwork} />
           ) : (
             <div className={styles.noArt}>
-              <span>♪</span>
+              <Music2 size={20} />
             </div>
           )}
         </div>
@@ -136,7 +150,7 @@ export default function Player() {
           onClick={toggleMute}
           title={isMuted ? 'Unmute' : 'Mute'}
         >
-          {isMuted ? '🔇' : '🔊'}
+          {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
         </button>
 
         {/* Play/Pause (host only) */}
@@ -147,21 +161,25 @@ export default function Player() {
               onClick={() => send('playback_prev', { trackId: track?.videoId })}
               disabled={!track}
               title="Previous / Restart"
-            >⏮</button>
+            >
+              <SkipBack size={18} />
+            </button>
             <button
               className={`${styles.controlBtn} ${styles.playBtn}`}
               onClick={isPlaying ? handleHostPause : handleHostPlay}
               disabled={!track}
               title={isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying ? '⏸' : '▶'}
+              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
             <button
               className={styles.controlBtn}
               onClick={() => send('playback_skip', { trackId: track?.videoId })}
               disabled={!track}
               title="Skip"
-            >⏭</button>
+            >
+              <SkipForward size={18} />
+            </button>
           </>
         )}
 
@@ -172,7 +190,9 @@ export default function Player() {
             onClick={() => send('vote', { action: 'skip', trackId: track.videoId })}
             title={`Vote to skip (${room?.settings?.userSkipMode === 'instant' ? 'instant' : 'vote'})`}
           >
-            {room?.settings?.userSkipMode === 'instant' ? '⏭' : '🗳 Skip'}
+            {room?.settings?.userSkipMode === 'instant'
+              ? <SkipForward size={18} />
+              : <Gavel size={18} />}
           </button>
         )}
 
@@ -182,7 +202,7 @@ export default function Player() {
           onClick={() => setVideoMode(v => !v)}
           title={videoMode ? 'Album Art Mode' : 'Video Mode'}
         >
-          {videoMode ? '🖼' : '🎬'}
+          {videoMode ? <Image size={18} /> : <Clapperboard size={18} />}
         </button>
       </div>
 
@@ -190,7 +210,7 @@ export default function Player() {
       {!unlocked && track && (
         <div className={styles.unlockOverlay} onClick={handleUnlock}>
           <div className={styles.unlockBtn}>
-            <span>▶</span>
+            <PlayCircle size={18} />
             <span>Tap to start audio</span>
           </div>
         </div>
@@ -198,7 +218,10 @@ export default function Player() {
 
       {/* Locked indicator */}
       {playerState === 'locked' && !unlocked && track && (
-        <div className={styles.statusPill}>🔒 Tap to unlock audio</div>
+        <div className={styles.statusPill}>
+          <Lock size={14} style={{ marginRight: 6 }} />
+          Tap to unlock audio
+        </div>
       )}
     </div>
   );

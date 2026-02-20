@@ -1,4 +1,5 @@
 import React from 'react';
+import { Gavel } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import styles from './VoteBar.module.css';
 
@@ -15,7 +16,8 @@ export default function VoteBar() {
   return (
     <div className={styles.voteBar}>
       <span className={styles.label}>
-        🗳 Skip vote: {skipVotes}/{needed}
+        <Gavel size={14} style={{ marginRight: 6 }} />
+        Skip vote: {skipVotes}/{needed}
       </span>
       <div className={styles.track}>
         <div className={styles.fill} style={{ width: `${pct * 100}%` }} />

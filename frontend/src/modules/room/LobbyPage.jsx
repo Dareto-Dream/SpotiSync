@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Music4, Radio, KeyRound } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRoom } from '../../context/RoomContext';
 import { api } from '../auth/api';
@@ -18,9 +19,7 @@ export default function LobbyPage() {
     setLoading(true);
     try {
       const data = await api.post('/api/rooms', {});
-      // Join the created room
       joinRoom(data.room.joinCode);
-      // Wait briefly then navigate
       setTimeout(() => navigate(`/room/${data.room.joinCode}`), 500);
     } catch (err) {
       setError(err.message);
@@ -46,7 +45,7 @@ export default function LobbyPage() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <div className={styles.brand}>🎵 Jam Mode</div>
+        <div className={styles.brand}><Music4 size={18} /> Jam Mode</div>
         <div className={styles.user}>
           <span>{user?.username}</span>
           <button className="btn btn-ghost" onClick={logout}>Sign Out</button>
@@ -63,7 +62,7 @@ export default function LobbyPage() {
 
         <div className={styles.actions}>
           <div className={styles.card}>
-            <div className={styles.cardIcon}>🎸</div>
+            <div className={styles.cardIcon}><Radio size={20} /></div>
             <h2>Create Room</h2>
             <p>Start a new jam session as host</p>
             <button className="btn btn-primary w-full" onClick={handleCreate} disabled={loading}>
@@ -74,7 +73,7 @@ export default function LobbyPage() {
           <div className={styles.divider}>or</div>
 
           <div className={styles.card}>
-            <div className={styles.cardIcon}>🔑</div>
+            <div className={styles.cardIcon}><KeyRound size={20} /></div>
             <h2>Join Room</h2>
             <p>Enter a room code to join friends</p>
             <form onSubmit={handleJoin} className={styles.joinForm}>

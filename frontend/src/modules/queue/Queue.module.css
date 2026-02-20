@@ -24,9 +24,9 @@
   gap: 8px;
   padding: 7px 4px;
   border-radius: var(--radius-sm);
-  transition: background 0.1s;
+  transition: background 0.1s, border 0.1s;
 }
-.item:hover { background: var(--surface); }
+.item:hover { background: var(--bg2); }
 
 .pos { width: 18px; text-align: center; font-size: 11px; color: var(--text3); flex-shrink: 0; }
 
@@ -35,11 +35,10 @@
   height: 36px;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--surface);
+  background: var(--bg2);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
   color: var(--text3);
   flex-shrink: 0;
 }
@@ -70,11 +69,13 @@
   border: none;
   color: var(--text3);
   cursor: pointer;
-  font-size: 13px;
   padding: 4px 6px;
   border-radius: 4px;
   flex-shrink: 0;
   transition: color 0.15s, background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .playNow:hover { color: var(--text); background: var(--border); }
 .removeBtn:hover { color: var(--error); background: var(--surface); }
@@ -90,5 +91,5 @@
   font-size: 13px;
   text-align: center;
 }
-.empty span { font-size: 32px; }
+.emptyIcon { width: 40px; height: 40px; color: var(--text3); }
 .hint { font-size: 12px; }

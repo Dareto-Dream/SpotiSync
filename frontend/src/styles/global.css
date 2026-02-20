@@ -1,15 +1,15 @@
 :root {
-  --bg: #ffffff;
-  --bg2: #f9f9f9;
-  --surface: #f3f3f3;
-  --border: #e5e5e5;
-  --text: #111111;
-  --text2: #555555;
-  --text3: #999999;
-  --accent: #111111;
-  --error: #cc0000;
-  --success: #007700;
-  --radius: 8px;
+  --bg: #0d1118;
+  --bg2: #111723;
+  --surface: #161d2b;
+  --border: #1f2937;
+  --text: #e7edf7;
+  --text2: #c0c9d7;
+  --text3: #8c9ab0;
+  --accent: #7dd3fc;
+  --error: #ef4444;
+  --success: #22c55e;
+  --radius: 10px;
   --radius-sm: 6px;
 }
 
@@ -34,16 +34,19 @@ button { cursor: pointer; border: none; outline: none; font-family: inherit; fon
 input, textarea, select {
   font-family: inherit;
   font-size: 14px;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
   padding: 9px 12px;
   width: 100%;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-input:focus, textarea:focus, select:focus { border-color: var(--text); }
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
+}
 input::placeholder { color: var(--text3); }
 
 .btn {
@@ -59,10 +62,14 @@ input::placeholder { color: var(--text3); }
   white-space: nowrap;
   cursor: pointer;
 }
-.btn-primary { background: var(--text); color: #fff; }
-.btn-primary:hover { background: #333; }
-.btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
-.btn-secondary:hover { background: var(--surface); }
+.btn-primary {
+  background: var(--accent);
+  color: #0b111b;
+  border: 1px solid var(--accent);
+}
+.btn-primary:hover { background: #5ac8f6; }
+.btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--bg2); }
 .btn-ghost { background: transparent; color: var(--text2); }
 .btn-ghost:hover { color: var(--text); }
 .btn-icon {

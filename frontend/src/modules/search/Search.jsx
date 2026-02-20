@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
+import { Search as SearchIcon, Music2, Plus } from 'lucide-react';
 import { api } from '../auth/api';
 import { useRoom } from '../../context/RoomContext';
 import styles from './Search.module.css';
@@ -8,7 +9,7 @@ export default function Search() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const { send, room } = useRoom();
+  const { send } = useRoom();
   const debounceRef = useRef(null);
 
   const doSearch = useCallback(async (q) => {
@@ -45,7 +46,7 @@ export default function Search() {
   return (
     <div className={styles.searchWrap}>
       <div className={styles.inputWrap}>
-        <span className={styles.icon}>🔍</span>
+        <span className={styles.icon}><SearchIcon size={16} strokeWidth={1.75} /></span>
         <input
           type="text"
           placeholder="Search YouTube Music..."
@@ -65,18 +66,21 @@ export default function Search() {
               <div className={styles.thumb}>
                 {track.thumbnailUrl
                   ? <img src={track.thumbnailUrl} alt="" />
-                  : <span>♪</span>}
+                  : <Music2 size={18} />}
               </div>
               <div className={styles.trackInfo}>
                 <div className={styles.title}>{track.title}</div>
-                <div className={styles.meta}>{track.artist}{track.album ? ` · ${track.album}` : ''}</div>
+                <div className={styles.meta}>{track.artist}{track.album ? ` - ${track.album}` : ''}</div>
               </div>
               <div className={styles.duration}>{formatDuration(track.durationMs)}</div>
               <button
                 className={styles.addBtn}
                 onClick={() => addToQueue(track)}
                 title="Add to queue"
-              >+</button>
+                aria-label="Add to queue"
+              >
+                <Plus size={16} />
+              </button>
             </li>
           ))}
         </ul>

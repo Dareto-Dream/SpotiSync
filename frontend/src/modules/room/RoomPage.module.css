@@ -38,6 +38,9 @@
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .code {
@@ -113,6 +116,10 @@
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   transition: color 0.15s, border-color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 .tabBtn:hover { color: var(--text); }
 .tabBtn.active {
@@ -133,6 +140,8 @@
   background: var(--surface);
   border-radius: var(--radius-sm);
   line-height: 1.4;
+  display: flex;
+  align-items: center;
 }
 
 .settingsOverlay {
