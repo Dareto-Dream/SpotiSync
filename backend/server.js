@@ -4,8 +4,10 @@ const cors = require('cors');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 
 const pool = require('./config/db');
+const { initRedis, redis } = require('./config/redis');
 const { runMigrations } = require('./db/migrate');
 const { recoverStaleRooms } = require('./modules/rooms/service');
 const { setupWebSocket } = require('./modules/websocket/handler');
@@ -32,6 +34,7 @@ app.use(cors({
 
 // ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 app.set('trust proxy', 1);
 
 const limiter = rateLimit({
@@ -73,6 +76,7 @@ async function start() {
     process.exit(1);
   }
 
+  await initRedis();
   await runMigrations();
   await recoverStaleRooms();
 
@@ -88,6 +92,7 @@ process.on('SIGTERM', async () => {
   console.log('[Server] SIGTERM received, shutting down...');
   server.close(() => {
     pool.end();
+    redis.quit().catch(() => {});
     process.exit(0);
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Music4 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -10,8 +10,53 @@ export default function AuthPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const { login, register } = useAuth();
+  const [googleReady, setGoogleReady] = useState(false);
+  const googleBtnRef = useRef(null);
+  const { login, register, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+  useEffect(() => {
+    if (!googleClientId || googleReady) return;
+    function init() {
+      if (!window.google?.accounts?.id || !googleBtnRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: async ({ credential }) => {
+          if (!credential) return;
+          setLoading(true);
+          setError(null);
+          try {
+            await loginWithGoogle(credential);
+            navigate('/');
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        },
+        ux_mode: 'popup',
+      });
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'outline',
+        size: 'large',
+        shape: 'pill',
+        width: 320,
+      });
+      setGoogleReady(true);
+    }
+
+    if (window.google?.accounts?.id) {
+      init();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = init;
+      document.body.appendChild(script);
+    }
+  }, [googleClientId, googleReady, loginWithGoogle, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,6 +112,13 @@ export default function AuthPage() {
             {loading ? <span className="spinner" /> : mode === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
+
+        {googleClientId && (
+          <>
+            <div className={styles.divider}><span>or</span></div>
+            <div ref={googleBtnRef} className={styles.googleBtnContainer} />
+          </>
+        )}
       </div>
     </div>
   );

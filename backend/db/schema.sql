@@ -4,9 +4,22 @@
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   username VARCHAR(64) UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,
+  email VARCHAR(255) UNIQUE,
+  google_sub TEXT UNIQUE,
+  auth_provider VARCHAR(32) NOT NULL DEFAULT 'local',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE users
+  ALTER COLUMN password_hash DROP NOT NULL;
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE,
+  ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE,
+  ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(32) NOT NULL DEFAULT 'local';
+
+UPDATE users SET auth_provider = 'local' WHERE auth_provider IS NULL;
 
 CREATE TABLE IF NOT EXISTS rooms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

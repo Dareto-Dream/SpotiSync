@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { api } from '../modules/auth/api';
 
 const AuthContext = createContext(null);
@@ -11,27 +11,49 @@ export function AuthProvider({ children }) {
     } catch { return null; }
   });
 
-  const login = useCallback(async (username, password) => {
-    const data = await api.post('/api/auth/login', { username, password });
+  const setSession = useCallback((data) => {
+    if (!data?.token || !data?.user) return;
     localStorage.setItem('jam_token', data.token);
     localStorage.setItem('jam_user', JSON.stringify(data.user));
     setUser(data.user);
-    return data.user;
   }, []);
 
-  const register = useCallback(async (username, password) => {
-    await api.post('/api/auth/register', { username, password });
-    return login(username, password);
-  }, [login]);
+  const login = useCallback(async (username, password) => {
+    const data = await api.post('/api/auth/login', { username, password });
+    setSession(data);
+    return data.user;
+  }, [setSession]);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('jam_token');
-    localStorage.removeItem('jam_user');
+  const register = useCallback(async (username, password) => {
+    const data = await api.post('/api/auth/register', { username, password });
+    setSession(data);
+    return data.user;
+  }, [setSession]);
+
+  const loginWithGoogle = useCallback(async (idToken) => {
+    const data = await api.post('/api/auth/google', { idToken });
+    setSession(data);
+    return data.user;
+  }, [setSession]);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/api/auth/logout');
+    } catch (err) {
+      console.warn('Logout failed', err);
+    }
+    api.clearAuth();
     setUser(null);
   }, []);
 
+  useEffect(() => {
+    if (!localStorage.getItem('jam_token')) {
+      api.refresh().then(setSession).catch(() => {});
+    }
+  }, [setSession]);
+
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, login, register, loginWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -71,3 +71,30 @@
   color: var(--error);
   background: var(--bg2);
 }
+
+.divider {
+  position: relative;
+  text-align: center;
+  color: var(--text3);
+  font-size: 12px;
+}
+.divider::before,
+.divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 35%;
+  height: 1px;
+  background: var(--border);
+}
+.divider::before { left: 0; }
+.divider::after { right: 0; }
+.divider span {
+  background: var(--bg);
+  padding: 0 8px;
+}
+
+.googleBtnContainer {
+  display: flex;
+  justify-content: center;
+}
