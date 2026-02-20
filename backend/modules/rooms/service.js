@@ -1,5 +1,6 @@
 const pool = require('../../config/db');
 const { v4: uuidv4 } = require('uuid');
+const playbackService = require('../playback/service');
 
 const DEFAULT_SETTINGS = {
   userSkipMode: 'vote',      // 'vote' | 'instant'
@@ -140,25 +141,103 @@ async function updateSettings(roomId, settings) {
 }
 
 // Called on server startup: close rooms whose heartbeat timed out
-async function recoverStaleRooms() {
-  const timeoutMs = parseInt(process.env.ROOM_TIMEOUT_MS || '30000');
+async function closeTimedOutRooms(timeoutMs) {
   const result = await pool.query(
     `UPDATE rooms SET is_active = FALSE
      WHERE is_active = TRUE AND last_heartbeat < NOW() - ($1 || ' milliseconds')::INTERVAL
      RETURNING id`,
     [timeoutMs]
   );
-  if (result.rows.length > 0) {
-    const ids = result.rows.map(r => r.id);
-    for (const id of ids) {
-      await pool.query(`DELETE FROM room_members WHERE room_id = $1`, [id]);
-    }
-    console.log(`[Room] Recovered ${result.rows.length} stale room(s)`);
+
+  if (result.rows.length === 0) return 0;
+
+  const ids = result.rows.map(r => r.id);
+  await pool.query(`DELETE FROM room_members WHERE room_id = ANY($1::uuid[])`, [ids]);
+  await pool.query(`DELETE FROM room_votes WHERE room_id = ANY($1::uuid[])`, [ids]);
+  await pool.query(`DELETE FROM room_playback WHERE room_id = ANY($1::uuid[])`, [ids]);
+  ids.forEach(playbackService.evictCache);
+
+  return ids.length;
+}
+
+async function deleteOldInactiveRooms(retentionHours) {
+  const result = await pool.query(
+    `DELETE FROM rooms
+     WHERE is_active = FALSE
+       AND last_heartbeat < NOW() - ($1 || ' hours')::INTERVAL
+     RETURNING id`,
+    [retentionHours]
+  );
+  return result.rows.length;
+}
+
+async function cleanupOrphans() {
+  const orphanMembers = await pool.query(
+    `DELETE FROM room_members rm
+     WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.id = rm.room_id)
+     RETURNING id`
+  );
+  const orphanPlayback = await pool.query(
+    `DELETE FROM room_playback rp
+     WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.id = rp.room_id)
+     RETURNING room_id`
+  );
+  const orphanVotes = await pool.query(
+    `DELETE FROM room_votes rv
+     WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.id = rv.room_id)
+     RETURNING id`
+  );
+  orphanPlayback.rows.forEach(r => playbackService.evictCache(r.room_id));
+
+  return {
+    members: orphanMembers.rows.length,
+    playback: orphanPlayback.rows.length,
+    votes: orphanVotes.rows.length,
+  };
+}
+
+async function recoverStaleRooms() {
+  const timeoutMs = parseInt(process.env.ROOM_TIMEOUT_MS || '30000', 10);
+  const closed = await closeTimedOutRooms(timeoutMs);
+  if (closed > 0) {
+    console.log(`[Room] Recovered ${closed} stale room(s)`);
   }
+}
+
+async function cleanupRoomData(options = {}) {
+  const timeoutMs = options.timeoutMs ?? parseInt(process.env.ROOM_TIMEOUT_MS || '30000', 10);
+  const retentionHours = options.retentionHours ?? parseInt(process.env.ROOM_RETENTION_HOURS || '24', 10);
+
+  const closed = await closeTimedOutRooms(timeoutMs);
+  const removed = await deleteOldInactiveRooms(retentionHours);
+  const orphans = await cleanupOrphans();
+
+  return { closed, removed, orphans };
+}
+
+let janitorTimer = null;
+function startRoomJanitor() {
+  if (janitorTimer) return;
+  const intervalMs = parseInt(process.env.ROOM_CLEANUP_INTERVAL_MS || String(5 * 60 * 1000), 10);
+
+  const tick = async () => {
+    try {
+      const summary = await cleanupRoomData();
+      if (summary.closed || summary.removed || summary.orphans.members || summary.orphans.playback || summary.orphans.votes) {
+        console.log('[Room Janitor]', summary);
+      }
+    } catch (err) {
+      console.error('[Room Janitor] Cleanup failed:', err.message);
+    }
+  };
+
+  janitorTimer = setInterval(tick, intervalMs);
+  tick(); // run once at startup
 }
 
 module.exports = {
   createRoom, getRoomByCode, getRoomById, joinRoom, leaveRoom,
   getMembers, closeRoom, updateHeartbeat, updateSettings, recoverStaleRooms,
+  cleanupRoomData, startRoomJanitor,
   DEFAULT_SETTINGS,
 };

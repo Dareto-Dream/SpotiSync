@@ -9,7 +9,7 @@ const cookieParser = require('cookie-parser');
 const pool = require('./config/db');
 const { initRedis, redis } = require('./config/redis');
 const { runMigrations } = require('./db/migrate');
-const { recoverStaleRooms } = require('./modules/rooms/service');
+const { recoverStaleRooms, startRoomJanitor } = require('./modules/rooms/service');
 const { setupWebSocket } = require('./modules/websocket/handler');
 
 const authRoutes = require('./modules/auth/routes');
@@ -79,6 +79,7 @@ async function start() {
   await initRedis();
   await runMigrations();
   await recoverStaleRooms();
+  startRoomJanitor();
 
   const PORT = parseInt(process.env.PORT || '4000');
   server.listen(PORT, () => {
