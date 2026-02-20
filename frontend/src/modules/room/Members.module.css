@@ -1,33 +1,34 @@
-.wrap { display: flex; flex-direction: column; gap: 8px; }
+.wrap { display: flex; flex-direction: column; gap: 6px; }
 
-.header { display: flex; align-items: center; justify-content: space-between; }
+.header { padding-bottom: 4px; }
 
 .title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
-.list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
 
 .member {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 6px 4px;
   border-radius: var(--radius-sm);
 }
 
 .avatar {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: var(--accent2);
-  color: white;
-  font-size: 14px;
-  font-weight: 700;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -36,8 +37,9 @@
 
 .name {
   flex: 1;
-  font-size: 14px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }

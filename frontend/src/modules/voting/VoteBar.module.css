@@ -2,8 +2,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 7px 10px;
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 12px;
 }
@@ -12,7 +13,7 @@
 
 .track {
   flex: 1;
-  height: 4px;
+  height: 3px;
   background: var(--border);
   border-radius: 999px;
   overflow: hidden;
@@ -20,12 +21,9 @@
 
 .fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--text);
   border-radius: 999px;
   transition: width 0.3s;
 }
 
-.passed {
-  color: var(--success);
-  font-weight: 700;
-}
+.passed { color: var(--success); font-weight: 600; }

@@ -4,70 +4,70 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: radial-gradient(ellipse at top, #1a0a1e 0%, var(--bg) 60%);
+  background: var(--bg);
 }
 
 .card {
   width: 100%;
-  max-width: 400px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 40px;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  gap: 20px;
 }
 
-.logo { font-size: 48px; }
+.logo {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
 
 .title {
-  font-size: 28px;
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
 }
 
-.sub { color: var(--text2); font-size: 14px; }
+.sub {
+  color: var(--text3);
+  font-size: 13px;
+  margin-top: -12px;
+}
 
 .tabs {
   display: flex;
-  background: var(--surface);
-  border-radius: var(--radius-sm);
-  padding: 4px;
-  width: 100%;
+  border-bottom: 1px solid var(--border);
 }
 
 .tab {
   flex: 1;
   padding: 8px;
-  border-radius: 6px;
   font-size: 14px;
-  font-weight: 600;
-  color: var(--text2);
+  font-weight: 500;
+  color: var(--text3);
   background: transparent;
-  transition: all 0.2s;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
 }
-
 .tab.active {
-  background: var(--accent);
-  color: white;
+  color: var(--text);
+  border-bottom-color: var(--text);
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 100%;
+  gap: 10px;
 }
 
 .error {
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid var(--error);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--error);
   border-radius: var(--radius-sm);
-  padding: 10px 14px;
+  padding: 10px 12px;
   font-size: 13px;
   color: var(--error);
+  background: var(--bg2);
 }

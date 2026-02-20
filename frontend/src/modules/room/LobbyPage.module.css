@@ -2,31 +2,30 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(ellipse at top, #1a0a1e 0%, var(--bg) 50%);
+  background: var(--bg);
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 32px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--border);
 }
 
 .brand {
-  font-size: 20px;
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--text);
 }
 
 .user {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   color: var(--text2);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .main {
@@ -36,79 +35,85 @@
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  gap: 24px;
+  gap: 40px;
+}
+
+.heading {
+  text-align: center;
 }
 
 .title {
-  font-size: 36px;
-  font-weight: 800;
-  text-align: center;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
 }
 
-.sub { color: var(--text2); font-size: 16px; }
+.sub {
+  color: var(--text3);
+  font-size: 14px;
+  margin-top: 6px;
+}
 
 .error {
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid var(--error);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--error);
   border-radius: var(--radius-sm);
-  padding: 12px 20px;
+  padding: 10px 14px;
   color: var(--error);
-  font-size: 14px;
-  max-width: 500px;
+  font-size: 13px;
+  max-width: 480px;
   width: 100%;
-  text-align: center;
 }
 
 .actions {
   display: flex;
-  align-items: center;
-  gap: 24px;
-  flex-wrap: wrap;
-  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
   width: 100%;
-  max-width: 700px;
+  max-width: 560px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .card {
   flex: 1;
-  min-width: 260px;
-  max-width: 320px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 32px 24px;
+  padding: 28px 24px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 12px;
-  text-align: center;
-  transition: border-color 0.2s;
+  background: var(--bg);
 }
 
-.card:hover { border-color: var(--accent); }
+.card h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
 
-.cardIcon { font-size: 40px; }
-
-.card h2 { font-size: 20px; font-weight: 700; }
-.card p { color: var(--text2); font-size: 14px; }
+.card p {
+  color: var(--text3);
+  font-size: 13px;
+  margin-top: -4px;
+}
 
 .divider {
-  color: var(--text3);
-  font-size: 14px;
-  font-weight: 600;
+  width: 1px;
+  background: var(--border);
+  align-self: stretch;
 }
 
 .joinForm {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 100%;
 }
 
 .codeInput {
   text-align: center;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: 0.3em;
-  padding: 14px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 12px;
 }

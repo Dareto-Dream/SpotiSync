@@ -1,70 +1,38 @@
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+.panel { display: flex; flex-direction: column; gap: 16px; }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
 }
+.header h3 { font-size: 15px; font-weight: 600; }
 
-.header h3 {
-  font-size: 18px;
-  font-weight: 700;
-}
+.field { display: flex; flex-direction: column; gap: 5px; }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field label {
-  font-size: 13px;
-  color: var(--text2);
-  font-weight: 600;
-}
-
-.field select, .field input[type="number"] {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: 8px 12px;
-  font-size: 14px;
-  outline: none;
-}
-
-.field input[type="range"] {
-  border: none;
-  padding: 0;
-  accent-color: var(--accent);
-}
+.field label { font-size: 12px; color: var(--text2); font-weight: 500; }
 
 .toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 4px 0;
 }
-
-.toggle label {
-  font-size: 14px;
-  color: var(--text);
-}
-
+.toggle label { font-size: 13px; color: var(--text); }
 .toggle input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
   cursor: pointer;
+  accent-color: var(--text);
+  flex-shrink: 0;
 }
 
 .actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
