@@ -43,6 +43,7 @@
   border-radius: var(--radius-sm);
   cursor: default;
   transition: background 0.1s;
+  min-width: 0;
 }
 .result:hover { background: var(--bg2); }
 

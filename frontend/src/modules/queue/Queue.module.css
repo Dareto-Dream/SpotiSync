@@ -1,4 +1,4 @@
-.queueWrap { display: flex; flex-direction: column; height: 100%; }
+.queueWrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
 .header { padding-bottom: 10px; }
 

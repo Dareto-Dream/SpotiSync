@@ -31,6 +31,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  min-width: 0;
 }
 
 .brand {
@@ -51,6 +52,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 5px 10px;
+  min-width: 0;
 }
 
 .codeLabel {
@@ -66,6 +68,8 @@
   font-weight: 700;
   letter-spacing: 0.15em;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .headerRight {
@@ -79,6 +83,7 @@
   flex: 1;
   overflow: hidden;
   height: calc(100vh - 57px);
+  min-height: 0;
 }
 
 .playerCol {
@@ -90,6 +95,7 @@
   overflow-y: auto;
   border-right: 1px solid var(--border);
   background: var(--bg2);
+  min-height: 0;
 }
 
 .sideCol {
@@ -98,6 +104,7 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  min-height: 0;
 }
 
 .tabs {
