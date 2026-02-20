@@ -14,7 +14,7 @@ function requireAuth(req, res, next) {
   }
 }
 
-// For WebSocket connections - verifies token from query param
+// For WebSocket connections - verifies token sent in AUTH message
 function verifyWsToken(token) {
   try {
     return verifyToken(token);

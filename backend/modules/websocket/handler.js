@@ -37,10 +37,6 @@ function getActiveMemberCount(roomId) {
 
 function setupWebSocket(wss) {
   wss.on('connection', async (ws, req) => {
-    // Allow upgrade with no auth; authenticate after socket opens.
-    const url = new URL(req.url, 'http://localhost');
-    const token = url.searchParams.get('token');
-
     ws._userId = null;
     ws._username = null;
     ws._roomId = null;
@@ -57,11 +53,8 @@ function setupWebSocket(wss) {
       return true;
     };
 
-    if (token) {
-      tryAuth(token); // best-effort; if fails, client can send AUTH later
-    } else {
-      sendTo(ws, S2C.AUTH_REQUIRED, { message: 'Send auth event with token' });
-    }
+    // Require client-side auth message post-connection
+    sendTo(ws, S2C.AUTH_REQUIRED, { message: 'Send auth event with token' });
 
     ws.on('pong', () => { ws._isAlive = true; });
 

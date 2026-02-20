@@ -2,14 +2,17 @@ const express = require('express');
 const router = express.Router();
 const authService = require('./service');
 
-const REFRESH_COOKIE_NAME = 'refresh_token';
+const isProd = process.env.NODE_ENV === 'production';
+const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || 'refresh_token';
 const REFRESH_TOKEN_TTL_DAYS = parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '30', 10);
+const sameSite = process.env.COOKIE_SAMESITE || (isProd ? 'none' : 'lax');
 const refreshCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: process.env.COOKIE_SAMESITE || 'lax',
+  secure: sameSite === 'none' ? true : isProd, // browsers require Secure when SameSite=None
+  sameSite,
   maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
   path: '/',
+  domain: process.env.COOKIE_DOMAIN || undefined,
 };
 
 function sendAuthResponse(res, tokens) {
@@ -64,9 +67,7 @@ router.post('/logout', async (req, res) => {
     const refreshToken = req.cookies[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
     await authService.revokeRefreshToken(refreshToken);
     res.clearCookie(REFRESH_COOKIE_NAME, {
-      path: '/',
-      sameSite: refreshCookieOptions.sameSite,
-      secure: refreshCookieOptions.secure,
+      ...refreshCookieOptions,
     });
     res.json({ success: true });
   } catch (err) {

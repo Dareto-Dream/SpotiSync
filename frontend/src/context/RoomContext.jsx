@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useRef, useCallback, useEffect } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useAuth } from './AuthContext';
 
 const RoomContext = createContext(null);
 
@@ -63,6 +64,7 @@ function reducer(state, action) {
 
 export function RoomProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
+  const { logout } = useAuth();
   const pendingCodeRef = useRef(null);
   const heartbeatRef = useRef(null);
   const sendRef = useRef(null); // ref so handleMessage can call send before it's declared
@@ -120,10 +122,17 @@ export function RoomProvider({ children }) {
     stopHeartbeat();
   }, []);
 
+  const handleAuthFailure = useCallback(() => {
+    dispatch({ type: 'ERROR', payload: 'Session expired. Please log in again.' });
+    stopHeartbeat();
+    logout();
+  }, [logout]);
+
   const { connect, disconnect, send } = useWebSocket({
     onMessage: handleMessage,
     onOpen: () => {},
     onClose: handleClose,
+    onAuthFailure: handleAuthFailure,
   });
 
   // Keep sendRef current so handleMessage and heartbeat can use it

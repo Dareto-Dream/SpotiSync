@@ -2,29 +2,39 @@ import { useRef, useEffect, useCallback } from 'react';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:4000';
 
-export function useWebSocket({ onMessage, onOpen, onClose }) {
+export function useWebSocket({ onMessage, onOpen, onClose, onAuthFailure }) {
   const wsRef = useRef(null);
-  const listenersRef = useRef({ onMessage, onOpen, onClose });
+  const listenersRef = useRef({ onMessage, onOpen, onClose, onAuthFailure });
   const reconnectTimerRef = useRef(null);
   const shouldReconnectRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const tokenRef = useRef(null);
 
   // Keep listeners current
   useEffect(() => {
-    listenersRef.current = { onMessage, onOpen, onClose };
+    listenersRef.current = { onMessage, onOpen, onClose, onAuthFailure };
   });
 
   const connect = useCallback((token) => {
-    if (wsRef.current && wsRef.current.readyState <= 1) {
-      wsRef.current.close();
+    tokenRef.current = token;
+    if (!token) {
+      console.warn('[WS] Missing token, abort connect');
+      return null;
+    }
+
+    // Guard: avoid duplicate connections
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return wsRef.current;
     }
 
     shouldReconnectRef.current = true;
-    const url = `${WS_URL}/ws?token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(`${WS_URL}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
       console.log('[WS] Connected');
+      reconnectAttemptsRef.current = 0;
+      ws.send(JSON.stringify({ event: 'auth', data: { token: tokenRef.current } }));
       listenersRef.current.onOpen?.();
     };
 
@@ -41,12 +51,20 @@ export function useWebSocket({ onMessage, onOpen, onClose }) {
       console.log('[WS] Closed', e.code, e.reason);
       listenersRef.current.onClose?.(e);
 
+      // Stop reconnecting on auth failures
+      if (e.code === 4001 || e.code === 4401) {
+        shouldReconnectRef.current = false;
+        listenersRef.current.onAuthFailure?.();
+        return;
+      }
+
       // Reconnect with backoff (unless deliberately closed)
-      if (shouldReconnectRef.current && e.code !== 4001) {
+      if (shouldReconnectRef.current) {
+        const delay = Math.min(30000, 1000 * 2 ** reconnectAttemptsRef.current);
         reconnectTimerRef.current = setTimeout(() => {
-          console.log('[WS] Reconnecting...');
-          connect(token);
-        }, 3000);
+          reconnectAttemptsRef.current += 1;
+          connect(tokenRef.current);
+        }, delay);
       }
     };
 
