@@ -10,8 +10,10 @@ function normalizeProfile(profile = {}) {
   return {
     artistWeights: { ...(profile.artistWeights || {}) },
     tokenWeights: { ...(profile.tokenWeights || {}) },
+    genreWeights: { ...(profile.genreWeights || {}) },
     recentTrackIds: Array.isArray(profile.recentTrackIds) ? [...profile.recentTrackIds] : [],
     recentArtists: Array.isArray(profile.recentArtists) ? [...profile.recentArtists] : [],
+    recentGenres: Array.isArray(profile.recentGenres) ? [...profile.recentGenres] : [],
     recentAutoplayIds: Array.isArray(profile.recentAutoplayIds) ? [...profile.recentAutoplayIds] : [],
     lastUpdatedAt: profile.lastUpdatedAt || Date.now(),
   };
@@ -43,6 +45,15 @@ function getTopKeys(weights = {}, limit = 5) {
     .map(([key]) => key);
 }
 
+function getGenre(track = {}) {
+  return (track.genre || '')
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+music$/, '') // normalize "pop music" -> "pop"
+    || null;
+}
+
 function decayWeights(weights, factor = 0.985) {
   const out = {};
   for (const [k, v] of Object.entries(weights || {})) {
@@ -61,6 +72,7 @@ function learnFromTrack(profile, track, options = {}) {
   const weight = options.isAutoplay ? baseWeight * 0.25 : baseWeight;
   p.artistWeights = decayWeights(p.artistWeights);
   p.tokenWeights = decayWeights(p.tokenWeights);
+   p.genreWeights = decayWeights(p.genreWeights);
 
   const artists = splitArtists(track.artist);
   artists.forEach((artist, i) => {
@@ -71,6 +83,12 @@ function learnFromTrack(profile, track, options = {}) {
   tokens.forEach((token, i) => {
     p.tokenWeights[token] = Number(((p.tokenWeights[token] || 0) + weight * (0.7 - i * 0.05)).toFixed(4));
   });
+
+  const genre = getGenre(track);
+  if (genre) {
+    p.genreWeights[genre] = Number(((p.genreWeights[genre] || 0) + weight * 1.05).toFixed(4));
+    p.recentGenres = [...p.recentGenres.filter(g => g !== genre), genre].slice(-60);
+  }
 
   if (options.isAutoplay) {
     p.recentAutoplayIds = [...p.recentAutoplayIds.filter(id => id !== track.videoId), track.videoId].slice(-50);
@@ -90,8 +108,10 @@ function buildQueries({ settings, profile, seedTrack }) {
   const variety = Math.max(0, Math.min(100, Number(settings?.autoplayVariety ?? 35)));
   const topArtists = getTopKeys(profile.artistWeights, 5);
   const topTokens = getTopKeys(profile.tokenWeights, 6);
+  const topGenres = getTopKeys(profile.genreWeights, 4);
   const seedArtists = splitArtists(seedTrack?.artist || '');
   const seedTokens = tokenize(`${seedTrack?.title || ''} ${seedTrack?.album || ''}`).slice(0, 4);
+  const seedGenre = getGenre(seedTrack);
 
   const base = [];
   if (seedArtists.length) base.push(`${seedArtists[0]} radio`);
@@ -101,6 +121,8 @@ function buildQueries({ settings, profile, seedTrack }) {
   if (seedArtists.length && seedTokens.length) base.push(`${seedArtists[0]} ${seedTokens[0]}`);
   if (variety >= 60 && topTokens.length) base.push(`${topTokens[0]} ${topTokens[1] || ''} fresh music`);
   if (variety < 60 && topArtists.length) base.push(`${topArtists[0]} similar songs`);
+  if (seedGenre) base.push(`${seedGenre} hits`);
+  if (topGenres.length) base.push(`${topGenres[0]} mix`);
   base.push('popular music mix');
 
   return unique(base).slice(0, 5);
@@ -111,17 +133,28 @@ function candidateScore(track, ctx) {
   const varietyBias = variety / 100;
   const artists = splitArtists(track.artist);
   const tokens = tokenize(`${track.title || ''} ${track.album || ''}`);
+  const genre = getGenre(track);
 
   let artistAffinity = 0;
   let tokenAffinity = 0;
+  let genreAffinity = 0;
   artists.forEach(a => { artistAffinity += ctx.profile.artistWeights[a] || 0; });
   tokens.forEach(t => { tokenAffinity += ctx.profile.tokenWeights[t] || 0; });
+  if (genre) genreAffinity += ctx.profile.genreWeights[genre] || 0;
 
   const recentlyUsedArtist = artists.some(a => ctx.recentArtists.has(a));
+  const recentlyUsedGenre = genre ? ctx.recentGenres.has(genre) : false;
   const recentPenalty = recentlyUsedArtist ? (0.8 + varietyBias * 1.4) : 0;
   const noveltyBoost = recentlyUsedArtist ? 0 : (0.6 + varietyBias * 1.2);
+  const genreBoost = genre && !recentlyUsedGenre ? 0.35 * (1 + varietyBias) : 0;
 
-  return artistAffinity * 1.8 + tokenAffinity * 0.9 + noveltyBoost - recentPenalty + Math.random() * 0.15;
+  return artistAffinity * 1.7
+    + tokenAffinity * 0.8
+    + genreAffinity * 1.4
+    + noveltyBoost
+    + genreBoost
+    - recentPenalty
+    + Math.random() * 0.12;
 }
 
 async function findAutoplayTrack({ state, settings }) {
@@ -149,6 +182,7 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
     ...profile.recentTrackIds.slice(-historySize),
     ...profile.recentAutoplayIds.slice(-25),
   ]);
+  const recentGenres = new Set(profile.recentGenres.slice(-Math.max(6, historySize / 2)));
 
   const queries = buildQueries({ settings, profile, seedTrack: state?.currentItem });
   const candidatesById = new Map();
@@ -177,6 +211,7 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
         settings,
         profile,
         recentArtists: new Set(profile.recentArtists.slice(-Math.max(8, historySize))),
+        recentGenres,
       }),
     }))
     .sort((a, b) => b.score - a.score);

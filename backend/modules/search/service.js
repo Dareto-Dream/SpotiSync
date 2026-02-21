@@ -53,6 +53,7 @@ function normalizeTrack(raw) {
       ? raw.artist.map(a => a.name || a).join(', ')
       : (raw.artist?.name || raw.artist || 'Unknown Artist'),
     album: raw.album?.name || raw.album || null,
+    genre: raw.genre || raw.category || (Array.isArray(raw.categories) ? raw.categories[0] : null) || null,
     durationMs: (raw.duration?.totalSeconds || raw.duration || 0) * 1000,
     thumbnailUrl: pickThumbnail(raw.thumbnails || raw.thumbnail),
     isExplicit: raw.isExplicit || false,
