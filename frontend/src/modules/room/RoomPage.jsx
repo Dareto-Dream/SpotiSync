@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info } from 'lucide-react';
+import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info, PlayCircle } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import { useAuth } from '../../context/AuthContext';
 import Player from '../player/Player';
@@ -18,6 +18,7 @@ export default function RoomPage() {
   const { room, isHost, error, joinRoom, leaveRoom, votes } = useRoom();
   const [tab, setTab] = useState('queue');
   const [showSettings, setShowSettings] = useState(false);
+  const isPlayerOnly = tab === 'player';
 
   useEffect(() => {
     if (!room && code) {
@@ -54,6 +55,35 @@ export default function RoomPage() {
       </div>
     );
   }
+
+  const renderTabs = (className) => (
+    <div className={className}>
+      <button
+        className={`${styles.tabBtn} ${tab === 'search' ? styles.active : ''}`}
+        onClick={() => setTab('search')}
+      >
+        <SearchIcon size={15} /> Search
+      </button>
+      <button
+        className={`${styles.tabBtn} ${tab === 'queue' ? styles.active : ''}`}
+        onClick={() => setTab('queue')}
+      >
+        <ListMusic size={15} /> Queue
+      </button>
+      <button
+        className={`${styles.tabBtn} ${tab === 'members' ? styles.active : ''}`}
+        onClick={() => setTab('members')}
+      >
+        <Users size={15} /> People
+      </button>
+      <button
+        className={`${styles.tabBtn} ${tab === 'player' ? styles.active : ''}`}
+        onClick={() => setTab('player')}
+      >
+        <PlayCircle size={15} /> Player
+      </button>
+    </div>
+  );
 
   return (
     <div className={styles.page}>
@@ -98,10 +128,10 @@ export default function RoomPage() {
       )}
 
       {/* Main layout */}
-      <div className={styles.layout}>
+      <div className={`${styles.layout} ${isPlayerOnly ? styles.playerOnly : ''}`}>
         {/* Left: Player */}
-        <div className={styles.playerCol}>
-          <Player />
+        <div className={`${styles.playerCol} ${isPlayerOnly ? styles.playerExpanded : ''}`}>
+          <Player large={isPlayerOnly} />
           {votes && <VoteBar />}
           {!isHost && (
             <div className={styles.muteNote}>
@@ -109,37 +139,27 @@ export default function RoomPage() {
               Use the mute button for local silence. Only the host can pause.
             </div>
           )}
+
+          {isPlayerOnly && (
+            <div className={styles.playerTabs}>
+              {renderTabs(styles.playerTabBar)}
+            </div>
+          )}
         </div>
 
         {/* Right: Tabs */}
-        <div className={styles.sideCol}>
-          <div className={styles.tabs}>
-            <button
-              className={`${styles.tabBtn} ${tab === 'search' ? styles.active : ''}`}
-              onClick={() => setTab('search')}
-            >
-              <SearchIcon size={15} /> Search
-            </button>
-            <button
-              className={`${styles.tabBtn} ${tab === 'queue' ? styles.active : ''}`}
-              onClick={() => setTab('queue')}
-            >
-              <ListMusic size={15} /> Queue
-            </button>
-            <button
-              className={`${styles.tabBtn} ${tab === 'members' ? styles.active : ''}`}
-              onClick={() => setTab('members')}
-            >
-              <Users size={15} /> People
-            </button>
-          </div>
+        {!isPlayerOnly && (
+          <div className={styles.sideCol}>
+            {renderTabs(styles.tabs)}
 
-          <div className={styles.tabContent}>
-            {tab === 'search' && <Search />}
-            {tab === 'queue' && <Queue />}
-            {tab === 'members' && <Members />}
+            <div className={styles.tabContent}>
+              {tab === 'search' && <Search />}
+              {tab === 'queue' && <Queue />}
+              {tab === 'members' && <Members />}
+              {tab === 'player' && <div className={styles.playerTabPlaceholder}>Player tab is open</div>}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

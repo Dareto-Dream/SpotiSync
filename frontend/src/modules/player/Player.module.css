@@ -11,6 +11,24 @@
   gap: 14px;
 }
 
+.large {
+  padding: 28px;
+  gap: 18px;
+}
+
+.large .albumArt {
+  width: 240px;
+  height: 240px;
+}
+
+.large .trackTitle {
+  font-size: 18px;
+}
+
+.large .controls {
+  gap: 10px;
+}
+
 .ytContainer {
   position: absolute;
   inset: 0;

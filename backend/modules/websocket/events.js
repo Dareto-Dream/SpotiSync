@@ -51,6 +51,7 @@ const S2C = {
 
   // Queue
   QUEUE_UPDATED: 'queue_updated',
+  AUTOPLAY_SUGGESTIONS: 'autoplay_suggestions',
 
   // Voting
   VOTE_UPDATE: 'vote_update',

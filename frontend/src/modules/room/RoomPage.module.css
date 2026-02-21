@@ -86,6 +86,10 @@
   min-height: 0;
 }
 
+.playerOnly {
+  justify-content: center;
+}
+
 .playerCol {
   flex: 0 0 340px;
   padding: 20px;
@@ -96,6 +100,12 @@
   border-right: 1px solid var(--border);
   background: var(--bg2);
   min-height: 0;
+}
+
+.playerExpanded {
+  flex: 1 1 auto;
+  max-width: 980px;
+  border-right: none;
 }
 
 .sideCol {
@@ -171,6 +181,32 @@
   max-width: 420px;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.playerTabs {
+  margin-top: 12px;
+}
+
+.playerTabBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+  background: var(--surface);
+}
+
+.playerTabBar .tabBtn {
+  flex: 0 0 auto;
+  border-bottom: none;
+  padding: 10px 12px;
+}
+
+.playerTabPlaceholder {
+  color: var(--text3);
+  font-size: 12px;
+  padding: 12px;
 }
 
 @media (max-width: 768px) {

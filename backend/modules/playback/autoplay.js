@@ -56,7 +56,9 @@ function learnFromTrack(profile, track, options = {}) {
   if (!track || !track.videoId) return normalizeProfile(profile);
 
   const p = normalizeProfile(profile);
-  const weight = Math.max(0.1, Number(options.weight ?? 1));
+  const baseWeight = Math.max(0.1, Number(options.weight ?? 1));
+  // Autoplay selections should nudge taste lightly to avoid genre lock-in
+  const weight = options.isAutoplay ? baseWeight * 0.25 : baseWeight;
   p.artistWeights = decayWeights(p.artistWeights);
   p.tokenWeights = decayWeights(p.tokenWeights);
 
@@ -125,6 +127,19 @@ function candidateScore(track, ctx) {
 async function findAutoplayTrack({ state, settings }) {
   if (!settings?.autoplayEnabled) return null;
 
+  const candidates = await findAutoplayCandidates({ state, settings, limit: 12 });
+  if (!candidates.length) return null;
+
+  const variety = Math.max(0, Math.min(100, Number(settings.autoplayVariety ?? 35)));
+  const topPoolSize = Math.max(1, Math.min(6, Math.round(1 + variety / 20)));
+  const topPool = candidates.slice(0, topPoolSize);
+  const selected = topPool[Math.floor(Math.random() * topPool.length)] || candidates[0];
+  return selected || null;
+}
+
+async function findAutoplayCandidates({ state, settings, limit = 10 }) {
+  if (!settings?.autoplayEnabled) return [];
+
   const profile = normalizeProfile(state?.autoplayProfile);
   const historySize = Math.max(5, Math.min(60, Number(settings.autoplayHistorySize ?? 20)));
   const disallowExplicit = settings.autoplayAllowExplicit === false;
@@ -153,7 +168,7 @@ async function findAutoplayTrack({ state, settings }) {
   }
 
   const candidates = [...candidatesById.values()];
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
 
   const scored = candidates
     .map(track => ({
@@ -166,15 +181,14 @@ async function findAutoplayTrack({ state, settings }) {
     }))
     .sort((a, b) => b.score - a.score);
 
-  const variety = Math.max(0, Math.min(100, Number(settings.autoplayVariety ?? 35)));
-  const topPoolSize = Math.max(1, Math.min(6, Math.round(1 + variety / 20)));
-  const topPool = scored.slice(0, topPoolSize);
-  const selected = topPool[Math.floor(Math.random() * topPool.length)];
-  return selected?.track ? { ...selected.track, source: 'autoplay' } : null;
+  return scored
+    .slice(0, limit)
+    .map(entry => ({ ...entry.track, source: 'autoplay' }));
 }
 
 module.exports = {
   normalizeProfile,
   learnFromTrack,
   findAutoplayTrack,
+  findAutoplayCandidates,
 };

@@ -17,7 +17,7 @@ import { useRoom } from '../../context/RoomContext';
 import { useYouTubePlayer } from './useYouTubePlayer';
 import styles from './Player.module.css';
 
-export default function Player() {
+export default function Player({ large = false }) {
   const { playback, isHost, send, room } = useRoom();
   const [videoMode, setVideoMode] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -110,8 +110,10 @@ export default function Player() {
   const track = playback?.currentItem;
   const isPlaying = playback?.isPlaying;
 
+  const wrapperClass = `${styles.playerWrap} ${large ? styles.large : ''}`;
+
   return (
-    <div className={styles.playerWrap}>
+    <div className={wrapperClass}>
       {/* YouTube IFrame - always mounted, visibility toggled */}
       <div className={styles.ytContainer} style={{ display: videoMode && unlocked ? 'block' : 'none' }}>
         <div id="yt-player" style={{ width: '100%', height: '100%' }} />

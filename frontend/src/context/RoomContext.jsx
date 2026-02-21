@@ -10,6 +10,7 @@ const INITIAL = {
   members: [],
   playback: null,
   queue: [],
+  autoplaySuggestions: [],
   votes: null,
   connected: false,
   error: null,
@@ -43,6 +44,8 @@ function reducer(state, action) {
       };
     case 'QUEUE_UPDATED':
       return { ...state, queue: action.payload.queue || [] };
+    case 'AUTOPLAY_SUGGESTIONS':
+      return { ...state, autoplaySuggestions: action.payload.suggestions || [] };
     case 'VOTE_UPDATE':
       return { ...state, votes: action.payload };
     case 'SETTINGS_UPDATED':
@@ -97,6 +100,9 @@ export function RoomProvider({ children }) {
         break;
       case 'queue_updated':
         dispatch({ type: 'QUEUE_UPDATED', payload: data });
+        break;
+      case 'autoplay_suggestions':
+        dispatch({ type: 'AUTOPLAY_SUGGESTIONS', payload: data });
         break;
       case 'vote_update':
       case 'vote_passed':

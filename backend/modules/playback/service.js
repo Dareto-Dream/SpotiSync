@@ -128,6 +128,17 @@ async function learnTaste(roomId, track, options = {}) {
   return updateAutoplayProfile(roomId, (profile) => autoplay.learnFromTrack(profile, track, options));
 }
 
+async function getAutoplaySuggestions(roomId, settings, limit = 10) {
+  const state = await getState(roomId);
+  if (!state) return [];
+  try {
+    return await autoplay.findAutoplayCandidates({ state, settings, limit });
+  } catch (err) {
+    console.error('[Autoplay] Suggestion build failed:', err.message);
+    return [];
+  }
+}
+
 // Current estimated position accounting for elapsed time since last update
 function getLivePosition(state) {
   if (!state) return 0;
@@ -145,5 +156,6 @@ module.exports = {
   getState, setState, play, pause, seek, setCurrentItem,
   addToQueue, removeFromQueue, reorderQueue, skipToNext,
   updateAutoplayProfile, learnTaste,
+  getAutoplaySuggestions,
   getLivePosition, evictCache,
 };

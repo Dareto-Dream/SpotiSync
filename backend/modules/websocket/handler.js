@@ -36,6 +36,28 @@ function getActiveMemberCount(roomId) {
   return getRoomClients(roomId).size;
 }
 
+async function emitAutoplaySuggestions(roomId, settings, targetWs = null) {
+  const payload = { suggestions: [] };
+  if (!settings?.autoplayEnabled) {
+    return targetWs
+      ? sendTo(targetWs, S2C.AUTOPLAY_SUGGESTIONS, payload)
+      : broadcast(roomId, S2C.AUTOPLAY_SUGGESTIONS, payload);
+  }
+
+  try {
+    const suggestions = await playbackService.getAutoplaySuggestions(roomId, settings, 10);
+    payload.suggestions = suggestions;
+  } catch (err) {
+    console.error('[WS] Failed to build autoplay suggestions:', err.message);
+  }
+
+  if (targetWs) {
+    sendTo(targetWs, S2C.AUTOPLAY_SUGGESTIONS, payload);
+  } else {
+    broadcast(roomId, S2C.AUTOPLAY_SUGGESTIONS, payload);
+  }
+}
+
 function setupWebSocket(wss) {
   wss.on('connection', async (ws, req) => {
     ws._userId = null;
@@ -212,6 +234,8 @@ async function handleJoinRoom(ws, { code }) {
     user: { id: userId, username: ws._username },
     memberCount: getActiveMemberCount(room.id),
   }, userId);
+
+  await emitAutoplaySuggestions(room.id, room.settings);
 }
 
 async function handleLeaveRoom(ws) {
@@ -333,6 +357,7 @@ async function doSkip(roomId, settings = {}) {
 
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(state));
   broadcast(roomId, S2C.QUEUE_UPDATED, { queue: state.queue });
+  await emitAutoplaySuggestions(roomId, settings);
 }
 
 async function handleVote(ws, { action, trackId }) {
@@ -401,6 +426,8 @@ async function handleQueueAdd(ws, { item }) {
     const newState = await playbackService.addToQueue(roomId, item);
     broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
   }
+
+  await emitAutoplaySuggestions(roomId, room.settings);
 }
 
 async function handleQueueRemove(ws, { index }) {
@@ -413,7 +440,10 @@ async function handleQueueRemove(ws, { index }) {
   }
 
   const newState = await playbackService.removeFromQueue(roomId, index);
-  if (newState) broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+  if (newState) {
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+    await emitAutoplaySuggestions(roomId, room.settings);
+  }
 }
 
 async function handleQueueReorder(ws, { fromIndex, toIndex }) {
@@ -426,7 +456,10 @@ async function handleQueueReorder(ws, { fromIndex, toIndex }) {
   }
 
   const newState = await playbackService.reorderQueue(roomId, fromIndex, toIndex);
-  if (newState) broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+  if (newState) {
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+    await emitAutoplaySuggestions(roomId, room.settings);
+  }
 }
 
 async function handleQueuePlayNow(ws, { index }) {
@@ -447,6 +480,7 @@ async function handleQueuePlayNow(ws, { index }) {
   votingService.resetVotes(roomId);
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
   broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+  await emitAutoplaySuggestions(roomId, room.settings);
 }
 
 async function handleUpdateSettings(ws, { settings }) {
@@ -462,6 +496,7 @@ async function handleUpdateSettings(ws, { settings }) {
   }
 
   broadcast(ws._roomId, S2C.SETTINGS_UPDATED, { settings: room.settings });
+  await emitAutoplaySuggestions(ws._roomId, room.settings);
 }
 
 // Serializers
