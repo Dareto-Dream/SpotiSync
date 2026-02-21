@@ -10,6 +10,10 @@ const DEFAULT_SETTINGS = {
   userQueueing: true,
   userReordering: false,
   userRemoval: false,
+  autoplayEnabled: true,
+  autoplayVariety: 35,      // 0 = familiar, 100 = exploratory
+  autoplayHistorySize: 20,  // number of recent tracks used to avoid repeats
+  autoplayAllowExplicit: true,
 };
 
 function generateCode() {
@@ -129,7 +133,11 @@ async function updateHeartbeat(roomId) {
 }
 
 async function updateSettings(roomId, settings) {
-  const allowed = ['userSkipMode', 'userPrevMode', 'voteThreshold', 'voteCooldownSec', 'userQueueing', 'userReordering', 'userRemoval'];
+  const allowed = [
+    'userSkipMode', 'userPrevMode', 'voteThreshold', 'voteCooldownSec',
+    'userQueueing', 'userReordering', 'userRemoval',
+    'autoplayEnabled', 'autoplayVariety', 'autoplayHistorySize', 'autoplayAllowExplicit',
+  ];
   const filtered = {};
   for (const k of allowed) {
     if (settings[k] !== undefined) filtered[k] = settings[k];

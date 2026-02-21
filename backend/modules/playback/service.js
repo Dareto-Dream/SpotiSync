@@ -1,4 +1,5 @@
 const pool = require('../../config/db');
+const autoplay = require('./autoplay');
 
 /**
  * Playback state is stored in DB for persistence.
@@ -23,6 +24,7 @@ async function getState(roomId) {
     serverTime: new Date(row.server_time).getTime(),
     isPlaying: row.is_playing,
     queue: row.queue || [],
+    autoplayProfile: autoplay.normalizeProfile(row.autoplay_profile || {}),
   };
   stateCache.set(roomId, state);
   return state;
@@ -36,6 +38,7 @@ async function setState(roomId, partial) {
     serverTime: Date.now(),
     isPlaying: false,
     queue: [],
+    autoplayProfile: autoplay.normalizeProfile({}),
   };
 
   const updated = { ...current, ...partial, roomId, serverTime: Date.now() };
@@ -47,14 +50,16 @@ async function setState(roomId, partial) {
        position_ms = $2,
        server_time = to_timestamp($3 / 1000.0),
        is_playing = $4,
-       queue = $5
-     WHERE room_id = $6`,
+       queue = $5,
+       autoplay_profile = $6
+     WHERE room_id = $7`,
     [
       JSON.stringify(updated.currentItem),
       updated.positionMs,
       updated.serverTime,
       updated.isPlaying,
       JSON.stringify(updated.queue),
+      JSON.stringify(autoplay.normalizeProfile(updated.autoplayProfile || {})),
       roomId,
     ]
   );
@@ -112,6 +117,17 @@ async function skipToNext(roomId) {
   return setState(roomId, { currentItem: nextItem, queue: rest, positionMs: 0, isPlaying: true });
 }
 
+async function updateAutoplayProfile(roomId, updater) {
+  const state = await getState(roomId);
+  if (!state) return null;
+  const nextProfile = updater(autoplay.normalizeProfile(state.autoplayProfile || {}));
+  return setState(roomId, { autoplayProfile: autoplay.normalizeProfile(nextProfile || {}) });
+}
+
+async function learnTaste(roomId, track, options = {}) {
+  return updateAutoplayProfile(roomId, (profile) => autoplay.learnFromTrack(profile, track, options));
+}
+
 // Current estimated position accounting for elapsed time since last update
 function getLivePosition(state) {
   if (!state) return 0;
@@ -127,5 +143,7 @@ function evictCache(roomId) {
 
 module.exports = {
   getState, setState, play, pause, seek, setCurrentItem,
-  addToQueue, removeFromQueue, reorderQueue, skipToNext, getLivePosition, evictCache,
+  addToQueue, removeFromQueue, reorderQueue, skipToNext,
+  updateAutoplayProfile, learnTaste,
+  getLivePosition, evictCache,
 };

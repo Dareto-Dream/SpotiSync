@@ -1,6 +1,7 @@
 const { verifyWsToken } = require('../auth/middleware');
 const roomService = require('../rooms/service');
 const playbackService = require('../playback/service');
+const autoplayService = require('../playback/autoplay');
 const votingService = require('../voting/service');
 const { C2S, S2C } = require('./events');
 
@@ -286,7 +287,7 @@ async function handleSkip(ws, data) {
   if (!room) return;
 
   if (ws._isHost || room.settings.userSkipMode === 'instant') {
-    await doSkip(ws._roomId);
+    await doSkip(ws._roomId, room.settings);
   } else {
     await handleVote(ws, { action: 'skip', trackId: room.settings.currentTrackId || data.trackId });
   }
@@ -305,9 +306,31 @@ async function handlePrev(ws, data) {
   }
 }
 
-async function doSkip(roomId) {
+async function doSkip(roomId, settings = {}) {
   votingService.resetVotes(roomId);
-  const state = await playbackService.skipToNext(roomId);
+
+  const before = await playbackService.getState(roomId);
+  if (before?.currentItem?.videoId) {
+    const durationMs = Number(before.currentItem.durationMs || 0);
+    const progress = durationMs > 0 ? before.positionMs / durationMs : 1;
+    const weight = progress < 0.35 ? 0.35 : 1;
+    await playbackService.learnTaste(roomId, before.currentItem, { weight });
+  }
+
+  let state = await playbackService.skipToNext(roomId);
+  if (!state) return;
+
+  if (!state?.currentItem && settings?.autoplayEnabled) {
+    const nextTrack = await autoplayService.findAutoplayTrack({
+      state: before,
+      settings,
+    });
+    if (nextTrack) {
+      await playbackService.learnTaste(roomId, nextTrack, { weight: 0.8, isAutoplay: true });
+      state = await playbackService.setCurrentItem(roomId, nextTrack, 0);
+    }
+  }
+
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(state));
   broadcast(roomId, S2C.QUEUE_UPDATED, { queue: state.queue });
 }
@@ -341,7 +364,7 @@ async function handleVote(ws, { action, trackId }) {
     if (passed) {
       broadcast(roomId, S2C.VOTE_PASSED, { action, trackId });
       if (action === 'skip') {
-        await doSkip(roomId);
+        await doSkip(roomId, settings);
       } else if (action === 'prev') {
         const state = await playbackService.seek(roomId, 0);
         broadcast(roomId, S2C.PLAYBACK_SEEK, serializePlayback(state));
@@ -365,6 +388,8 @@ async function handleQueueAdd(ws, { item }) {
   if (!item || !item.videoId) {
     return sendTo(ws, S2C.ERROR, { code: 'INVALID', message: 'Invalid track item' });
   }
+
+  await playbackService.learnTaste(roomId, item, { weight: 1.2 });
 
   const state = await playbackService.getState(roomId);
 
@@ -418,6 +443,7 @@ async function handleQueuePlayNow(ws, { index }) {
     positionMs: 0,
     isPlaying: true,
   });
+  await playbackService.learnTaste(roomId, item, { weight: 1 });
   votingService.resetVotes(roomId);
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
   broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });

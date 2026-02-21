@@ -4,7 +4,13 @@ import styles from './RoomSettings.module.css';
 
 export default function RoomSettings({ onClose }) {
   const { room, send } = useRoom();
-  const [settings, setSettings] = useState({ ...room?.settings });
+  const [settings, setSettings] = useState({
+    autoplayEnabled: true,
+    autoplayVariety: 35,
+    autoplayHistorySize: 20,
+    autoplayAllowExplicit: true,
+    ...room?.settings,
+  });
 
   if (!room) return null;
 
@@ -74,6 +80,49 @@ export default function RoomSettings({ onClose }) {
         <label>Users can reorder queue</label>
         <input type="checkbox" checked={settings.userReordering}
           onChange={e => update('userReordering', e.target.checked)} />
+      </div>
+
+      <div className={styles.sectionTitle}>Advanced Autoplay</div>
+
+      <div className={styles.toggle}>
+        <label>Enable contextual autoplay</label>
+        <input
+          type="checkbox"
+          checked={!!settings.autoplayEnabled}
+          onChange={e => update('autoplayEnabled', e.target.checked)}
+        />
+      </div>
+
+      <div className={styles.field}>
+        <label>Autoplay Variety ({Math.round(settings.autoplayVariety || 35)}%)</label>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="5"
+          value={Math.round(settings.autoplayVariety || 35)}
+          onChange={e => update('autoplayVariety', parseInt(e.target.value, 10))}
+        />
+      </div>
+
+      <div className={styles.field}>
+        <label>Taste History Window</label>
+        <input
+          type="number"
+          min="5"
+          max="60"
+          value={settings.autoplayHistorySize || 20}
+          onChange={e => update('autoplayHistorySize', parseInt(e.target.value, 10))}
+        />
+      </div>
+
+      <div className={styles.toggle}>
+        <label>Allow explicit in autoplay</label>
+        <input
+          type="checkbox"
+          checked={settings.autoplayAllowExplicit !== false}
+          onChange={e => update('autoplayAllowExplicit', e.target.checked)}
+        />
       </div>
 
       <div className={styles.actions}>

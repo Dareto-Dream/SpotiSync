@@ -36,7 +36,11 @@ CREATE TABLE IF NOT EXISTS rooms (
     "voteCooldownSec": 5,
     "userQueueing": true,
     "userReordering": false,
-    "userRemoval": false
+    "userRemoval": false,
+    "autoplayEnabled": true,
+    "autoplayVariety": 35,
+    "autoplayHistorySize": 20,
+    "autoplayAllowExplicit": true
   }'::jsonb
 );
 
@@ -55,8 +59,20 @@ CREATE TABLE IF NOT EXISTS room_playback (
   position_ms BIGINT DEFAULT 0, -- current playback position
   server_time TIMESTAMPTZ DEFAULT NOW(), -- time when position was recorded
   is_playing BOOLEAN DEFAULT FALSE,
-  queue JSONB DEFAULT '[]'::jsonb  -- ordered array of track objects
+  queue JSONB DEFAULT '[]'::jsonb,  -- ordered array of track objects
+  autoplay_profile JSONB DEFAULT '{}'::jsonb
 );
+
+ALTER TABLE room_playback
+  ADD COLUMN IF NOT EXISTS autoplay_profile JSONB DEFAULT '{}'::jsonb;
+
+UPDATE rooms
+SET settings = '{
+  "autoplayEnabled": true,
+  "autoplayVariety": 35,
+  "autoplayHistorySize": 20,
+  "autoplayAllowExplicit": true
+}'::jsonb || COALESCE(settings, '{}'::jsonb);
 
 -- Vote tracking (reset per track change)
 CREATE TABLE IF NOT EXISTS room_votes (
