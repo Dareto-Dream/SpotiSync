@@ -23,6 +23,9 @@ const C2S = {
   QUEUE_REMOVE: 'queue_remove',
   QUEUE_REORDER: 'queue_reorder',
   QUEUE_PLAY_NOW: 'queue_play_now',
+  AUTOPLAY_REMOVE: 'autoplay_remove',
+  AUTOPLAY_REORDER: 'autoplay_reorder',
+  AUTOPLAY_PROMOTE: 'autoplay_promote',
 
   // Voting
   VOTE: 'vote',

@@ -1,6 +1,8 @@
 const pool = require('../../config/db');
 const autoplay = require('./autoplay');
 
+const MIN_AUTOPLAY_QUEUE = 10;
+
 /**
  * Playback state is stored in DB for persistence.
  * An in-memory cache keyed by roomId speeds up frequent reads.
@@ -24,6 +26,7 @@ async function getState(roomId) {
     serverTime: new Date(row.server_time).getTime(),
     isPlaying: row.is_playing,
     queue: row.queue || [],
+    autoplayQueue: row.autoplay_queue || [],
     autoplayProfile: autoplay.normalizeProfile(row.autoplay_profile || {}),
   };
   stateCache.set(roomId, state);
@@ -38,6 +41,7 @@ async function setState(roomId, partial) {
     serverTime: Date.now(),
     isPlaying: false,
     queue: [],
+    autoplayQueue: [],
     autoplayProfile: autoplay.normalizeProfile({}),
   };
 
@@ -51,14 +55,16 @@ async function setState(roomId, partial) {
        server_time = to_timestamp($3 / 1000.0),
        is_playing = $4,
        queue = $5,
-       autoplay_profile = $6
-     WHERE room_id = $7`,
+       autoplay_queue = $6,
+       autoplay_profile = $7
+     WHERE room_id = $8`,
     [
       JSON.stringify(updated.currentItem),
       updated.positionMs,
       updated.serverTime,
       updated.isPlaying,
       JSON.stringify(updated.queue),
+      JSON.stringify(updated.autoplayQueue || []),
       JSON.stringify(autoplay.normalizeProfile(updated.autoplayProfile || {})),
       roomId,
     ]
@@ -105,16 +111,102 @@ async function reorderQueue(roomId, fromIndex, toIndex) {
   return setState(roomId, { queue });
 }
 
-// Advance to next queue item; returns new state or null if queue empty
-async function skipToNext(roomId) {
+async function removeFromAutoplayQueue(roomId, index) {
   const state = await getState(roomId);
   if (!state) return null;
-  const queue = state.queue || [];
-  if (queue.length === 0) {
-    return setState(roomId, { currentItem: null, isPlaying: false, positionMs: 0, queue: [] });
+  const autoplayQueue = (state.autoplayQueue || []).filter((_, i) => i !== index);
+  return setState(roomId, { autoplayQueue });
+}
+
+async function reorderAutoplayQueue(roomId, fromIndex, toIndex) {
+  const state = await getState(roomId);
+  if (!state) return null;
+  const autoplayQueue = [...(state.autoplayQueue || [])];
+  const [item] = autoplayQueue.splice(fromIndex, 1);
+  autoplayQueue.splice(toIndex, 0, item);
+  return setState(roomId, { autoplayQueue });
+}
+
+async function promoteAutoplayToQueue(roomId, fromIndex, toIndex = null) {
+  const state = await getState(roomId);
+  if (!state) return null;
+  const autoplayQueue = [...(state.autoplayQueue || [])];
+  if (fromIndex < 0 || fromIndex >= autoplayQueue.length) return state;
+  const [item] = autoplayQueue.splice(fromIndex, 1);
+  const queue = [...(state.queue || [])];
+  const insertAt = toIndex === null || toIndex > queue.length ? queue.length : Math.max(0, toIndex);
+  queue.splice(insertAt, 0, item);
+  return setState(roomId, { autoplayQueue, queue });
+}
+
+async function ensureAutoplayQueue(roomId, settings = {}) {
+  const state = await getState(roomId);
+  if (!state) return null;
+
+  if (!settings.autoplayEnabled) {
+    if ((state.autoplayQueue || []).length) {
+      return setState(roomId, { autoplayQueue: [] });
+    }
+    return state;
   }
-  const [nextItem, ...rest] = queue;
-  return setState(roomId, { currentItem: nextItem, queue: rest, positionMs: 0, isPlaying: true });
+
+  const currentAuto = [...(state.autoplayQueue || [])];
+  if (currentAuto.length >= MIN_AUTOPLAY_QUEUE) return state;
+
+  const baseState = { ...state, autoplayQueue: currentAuto };
+  const missing = MIN_AUTOPLAY_QUEUE - currentAuto.length;
+  const candidates = await autoplay.findAutoplayCandidates({
+    state: baseState,
+    settings,
+    limit: Math.max(12, missing * 2),
+  });
+
+  for (const track of candidates) {
+    if (currentAuto.length >= MIN_AUTOPLAY_QUEUE) break;
+    if (!track?.videoId) continue;
+    if (currentAuto.some(t => t.videoId === track.videoId)) continue;
+    if ((state.queue || []).some(t => t?.videoId === track.videoId)) continue;
+    if (state.currentItem?.videoId === track.videoId) continue;
+    currentAuto.push(track);
+  }
+
+  if (currentAuto.length === (state.autoplayQueue || []).length) return state;
+  return setState(roomId, { autoplayQueue: currentAuto });
+}
+
+// Advance to next item: normal queue has priority over autoplay queue
+async function skipToNext(roomId, settings = {}) {
+  let state = await getState(roomId);
+  if (!state) return null;
+
+  let queue = [...(state.queue || [])];
+  let autoplayQueue = [...(state.autoplayQueue || [])];
+
+  if (queue.length === 0 && settings.autoplayEnabled) {
+    // Ensure autoplay queue is populated before consuming
+    state = await ensureAutoplayQueue(roomId, settings) || state;
+    autoplayQueue = [...(state.autoplayQueue || [])];
+  }
+
+  let nextItem = null;
+  let usedAutoplay = false;
+
+  if (queue.length > 0) {
+    [nextItem, ...queue] = queue;
+  } else if (settings.autoplayEnabled && autoplayQueue.length > 0) {
+    [nextItem, ...autoplayQueue] = autoplayQueue;
+    usedAutoplay = true;
+  }
+
+  const updated = await setState(roomId, {
+    currentItem: nextItem,
+    queue,
+    autoplayQueue,
+    positionMs: 0,
+    isPlaying: !!nextItem,
+  });
+
+  return { state: updated, usedAutoplay };
 }
 
 async function updateAutoplayProfile(roomId, updater) {
@@ -157,5 +249,7 @@ module.exports = {
   addToQueue, removeFromQueue, reorderQueue, skipToNext,
   updateAutoplayProfile, learnTaste,
   getAutoplaySuggestions,
+  removeFromAutoplayQueue, reorderAutoplayQueue, promoteAutoplayToQueue,
+  ensureAutoplayQueue,
   getLivePosition, evictCache,
 };

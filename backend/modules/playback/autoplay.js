@@ -181,6 +181,7 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
   const disallowExplicit = settings.autoplayAllowExplicit === false;
   const recentIds = new Set([
     ...(state?.queue || []).map(t => t?.videoId).filter(Boolean),
+    ...(state?.autoplayQueue || []).map(t => t?.videoId).filter(Boolean),
     state?.currentItem?.videoId,
     ...profile.recentTrackIds.slice(-historySize),
     ...profile.recentAutoplayIds.slice(-25),

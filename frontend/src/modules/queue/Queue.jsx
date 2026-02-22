@@ -1,10 +1,10 @@
 import React from 'react';
-import { Inbox, Music2, Play, X, Sparkles } from 'lucide-react';
+import { Inbox, Music2, Play, X, Sparkles, ArrowUp, ArrowDown, ArrowRight } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import styles from './Queue.module.css';
 
 export default function Queue() {
-  const { queue, autoplaySuggestions, isHost, send, room } = useRoom();
+  const { queue = [], autoplayQueue = [], isHost, send, room } = useRoom();
 
   const formatDuration = (ms) => {
     if (!ms) return '';
@@ -13,8 +13,29 @@ export default function Queue() {
   };
 
   const canRemove = isHost || room?.settings?.userRemoval;
+  const canReorder = isHost || room?.settings?.userReordering;
   const hasQueue = queue && queue.length > 0;
   const offset = queue?.length || 0;
+
+  const moveQueue = (from, delta) => {
+    const to = from + delta;
+    if (to < 0 || to >= queue.length) return;
+    send('queue_reorder', { fromIndex: from, toIndex: to });
+  };
+
+  const moveAutoplay = (from, delta) => {
+    const to = from + delta;
+    if (to < 0 || to >= autoplayQueue.length) return;
+    send('autoplay_reorder', { fromIndex: from, toIndex: to });
+  };
+
+  const promoteAutoplay = (index, toIndex = queue.length) => {
+    send('autoplay_promote', { index, toIndex });
+  };
+
+  const removeAutoplay = (index) => {
+    send('autoplay_remove', { index });
+  };
 
   return (
     <div className={styles.queueWrap}>
@@ -37,24 +58,46 @@ export default function Queue() {
                 <div className={styles.itemArtist}>{track.artist}</div>
               </div>
               <span className={styles.dur}>{formatDuration(track.durationMs)}</span>
-              {isHost && (
-                <button
-                  className={styles.playNow}
-                  onClick={() => send('queue_play_now', { index })}
-                  title="Play now"
-                >
-                  <Play size={14} />
-                </button>
-              )}
-              {canRemove && (
-                <button
-                  className={styles.removeBtn}
-                  onClick={() => send('queue_remove', { index })}
-                  title="Remove"
-                >
-                  <X size={14} />
-                </button>
-              )}
+              <div className={styles.controls}>
+                {canReorder && (
+                  <>
+                    <button
+                      className={styles.iconBtn}
+                      onClick={() => moveQueue(index, -1)}
+                      disabled={index === 0}
+                      title="Move up"
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      className={styles.iconBtn}
+                      onClick={() => moveQueue(index, 1)}
+                      disabled={index === queue.length - 1}
+                      title="Move down"
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </>
+                )}
+                {isHost && (
+                  <button
+                    className={styles.iconBtn}
+                    onClick={() => send('queue_play_now', { index })}
+                    title="Play now"
+                  >
+                    <Play size={14} />
+                  </button>
+                )}
+                {canRemove && (
+                  <button
+                    className={styles.removeBtn}
+                    onClick={() => send('queue_remove', { index })}
+                    title="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
@@ -66,15 +109,15 @@ export default function Queue() {
         </div>
       )}
 
-      {autoplaySuggestions?.length > 0 && (
+      {autoplayQueue?.length > 0 && (
         <div className={styles.autoplaySection}>
           <div className={styles.autoplayHeader}>
-            <span className={styles.title}><Sparkles size={14} /> Autoplay preview</span>
-            <span className={styles.badge}>{autoplaySuggestions.length}</span>
+            <span className={styles.title}><Sparkles size={14} /> Autoplay queue</span>
+            <span className={styles.badge}>{autoplayQueue.length}</span>
           </div>
-          <p className={styles.subHint}>These will play after the queue unless someone adds a song.</p>
+          <p className={styles.subHint}>Always kept at 10. Normal queue plays first.</p>
           <ul className={`${styles.list} ${styles.autoplayList}`}>
-            {autoplaySuggestions.slice(0, 10).map((track, index) => (
+            {autoplayQueue.map((track, index) => (
               <li key={`${track.videoId}-auto-${index}`} className={`${styles.item} ${styles.autoplayItem}`}>
                 <span className={styles.pos}>{offset + index + 1}</span>
                 <div className={styles.thumb}>
@@ -88,6 +131,44 @@ export default function Queue() {
                 </div>
                 <span className={styles.dur}>{formatDuration(track.durationMs)}</span>
                 <span className={styles.pill}>Autoplay</span>
+                <div className={styles.controls}>
+                  {canReorder && (
+                    <>
+                      <button
+                        className={styles.iconBtn}
+                        onClick={() => moveAutoplay(index, -1)}
+                        disabled={index === 0}
+                        title="Move up in autoplay"
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        className={styles.iconBtn}
+                        onClick={() => moveAutoplay(index, 1)}
+                        disabled={index === autoplayQueue.length - 1}
+                        title="Move down in autoplay"
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                      <button
+                        className={styles.iconBtn}
+                        onClick={() => promoteAutoplay(index)}
+                        title="Move into main queue"
+                      >
+                        <ArrowRight size={14} />
+                      </button>
+                    </>
+                  )}
+                  {canRemove && (
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => removeAutoplay(index)}
+                      title="Remove autoplay track"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

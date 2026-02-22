@@ -10,7 +10,7 @@ const INITIAL = {
   members: [],
   playback: null,
   queue: [],
-  autoplaySuggestions: [],
+  autoplayQueue: [],
   votes: null,
   feedback: null,
   connected: false,
@@ -28,6 +28,7 @@ function reducer(state, action) {
         members: action.payload.members || [],
         playback: action.payload.playback,
         queue: action.payload.playback?.queue || [],
+        autoplayQueue: action.payload.playback?.autoplayQueue || [],
         feedback: null,
         connected: true,
         error: null,
@@ -43,11 +44,17 @@ function reducer(state, action) {
         ...state,
         playback: action.payload,
         queue: action.payload?.queue || state.queue,
+        autoplayQueue: action.payload?.autoplayQueue || state.autoplayQueue,
       };
     case 'QUEUE_UPDATED':
-      return { ...state, queue: action.payload.queue || [] };
+      return {
+        ...state,
+        queue: action.payload.queue || [],
+        autoplayQueue: action.payload.autoplayQueue || state.autoplayQueue,
+      };
     case 'AUTOPLAY_SUGGESTIONS':
-      return { ...state, autoplaySuggestions: action.payload.suggestions || [] };
+      // Legacy event; no-op now that autoplay is a real queue
+      return state;
     case 'VOTE_UPDATE':
       return { ...state, votes: action.payload };
     case 'FEEDBACK_UPDATE':

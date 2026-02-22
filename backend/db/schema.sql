@@ -60,11 +60,13 @@ CREATE TABLE IF NOT EXISTS room_playback (
   server_time TIMESTAMPTZ DEFAULT NOW(), -- time when position was recorded
   is_playing BOOLEAN DEFAULT FALSE,
   queue JSONB DEFAULT '[]'::jsonb,  -- ordered array of track objects
+  autoplay_queue JSONB DEFAULT '[]'::jsonb, -- ordered array of autoplay track objects
   autoplay_profile JSONB DEFAULT '{}'::jsonb
 );
 
 ALTER TABLE room_playback
-  ADD COLUMN IF NOT EXISTS autoplay_profile JSONB DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS autoplay_profile JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS autoplay_queue JSONB DEFAULT '[]'::jsonb;
 
 UPDATE rooms
 SET settings = '{

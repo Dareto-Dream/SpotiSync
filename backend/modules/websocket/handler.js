@@ -222,6 +222,18 @@ async function handleMessage(ws, msg, tryAuth) {
         await handleQueuePlayNow(ws, data);
         break;
 
+      case C2S.AUTOPLAY_REMOVE:
+        await handleAutoplayRemove(ws, data);
+        break;
+
+      case C2S.AUTOPLAY_REORDER:
+        await handleAutoplayReorder(ws, data);
+        break;
+
+      case C2S.AUTOPLAY_PROMOTE:
+        await handleAutoplayPromote(ws, data);
+        break;
+
       case C2S.VOTE:
         await handleVote(ws, data);
         break;
@@ -262,7 +274,8 @@ async function handleJoinRoom(ws, { code }) {
   ws._isHost = room.host_id === userId;
 
   // Get full state for new member
-  const playbackState = await playbackService.getState(room.id);
+  let playbackState = await playbackService.ensureAutoplayQueue(room.id, room.settings);
+  if (!playbackState) playbackState = await playbackService.getState(room.id);
   const members = await roomService.getMembers(room.id);
 
   sendTo(ws, S2C.ROOM_STATE, {
@@ -394,25 +407,23 @@ async function doSkip(roomId, settings = {}) {
     await playbackService.learnTaste(roomId, before.currentItem, { weight });
   }
 
-  let state = await playbackService.skipToNext(roomId);
-  if (!state) return;
+  let result = await playbackService.skipToNext(roomId, settings);
+  if (!result) return;
+  let state = result.state;
 
-  if (!state?.currentItem && settings?.autoplayEnabled) {
-    const nextTrack = await autoplayService.findAutoplayTrack({
-      state: before,
-      settings,
-    });
-    if (nextTrack) {
-      await playbackService.learnTaste(roomId, nextTrack, { weight: 0.8, isAutoplay: true });
-      state = await playbackService.setCurrentItem(roomId, nextTrack, 0);
-    }
+  if (result.usedAutoplay && state?.currentItem) {
+    await playbackService.learnTaste(roomId, state.currentItem, { weight: 0.8, isAutoplay: true });
+  }
+
+  if (settings?.autoplayEnabled) {
+    state = await playbackService.ensureAutoplayQueue(roomId, settings) || state;
   }
 
   ensureFeedbackTrack(roomId, state?.currentItem?.videoId || null);
   emitFeedback(roomId);
 
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(state));
-  broadcast(roomId, S2C.QUEUE_UPDATED, { queue: state.queue });
+  broadcast(roomId, S2C.QUEUE_UPDATED, { queue: state.queue, autoplayQueue: state.autoplayQueue });
   await emitAutoplaySuggestions(roomId, settings);
 }
 
@@ -537,7 +548,7 @@ async function handleQueueAdd(ws, { item }) {
     broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
   } else {
     const newState = await playbackService.addToQueue(roomId, item);
-    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
   }
 
   await emitAutoplaySuggestions(roomId, room.settings);
@@ -554,7 +565,7 @@ async function handleQueueRemove(ws, { index }) {
 
   const newState = await playbackService.removeFromQueue(roomId, index);
   if (newState) {
-    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
     await emitAutoplaySuggestions(roomId, room.settings);
   }
 }
@@ -570,7 +581,7 @@ async function handleQueueReorder(ws, { fromIndex, toIndex }) {
 
   const newState = await playbackService.reorderQueue(roomId, fromIndex, toIndex);
   if (newState) {
-    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
     await emitAutoplaySuggestions(roomId, room.settings);
   }
 }
@@ -594,8 +605,56 @@ async function handleQueuePlayNow(ws, { index }) {
   ensureFeedbackTrack(roomId, item.videoId);
   emitFeedback(roomId);
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
-  broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
+  broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
   await emitAutoplaySuggestions(roomId, room.settings);
+}
+
+async function handleAutoplayRemove(ws, { index }) {
+  const roomId = ws._roomId;
+  const room = await roomService.getRoomById(roomId);
+  if (!room) return;
+
+  const canRemove = ws._isHost || room.settings.userRemoval;
+  if (!canRemove) return sendTo(ws, S2C.ERROR, { code: 'FORBIDDEN', message: 'Autoplay removal is disabled' });
+
+  let newState = await playbackService.removeFromAutoplayQueue(roomId, index);
+  if (room.settings.autoplayEnabled) {
+    newState = await playbackService.ensureAutoplayQueue(roomId, room.settings) || newState;
+  }
+  if (newState) {
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
+  }
+}
+
+async function handleAutoplayReorder(ws, { fromIndex, toIndex }) {
+  const roomId = ws._roomId;
+  const room = await roomService.getRoomById(roomId);
+  if (!room) return;
+
+  const canReorder = ws._isHost || room.settings.userReordering;
+  if (!canReorder) return sendTo(ws, S2C.ERROR, { code: 'FORBIDDEN', message: 'Autoplay reordering is disabled' });
+
+  const newState = await playbackService.reorderAutoplayQueue(roomId, fromIndex, toIndex);
+  if (newState) {
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
+  }
+}
+
+async function handleAutoplayPromote(ws, { index, toIndex }) {
+  const roomId = ws._roomId;
+  const room = await roomService.getRoomById(roomId);
+  if (!room) return;
+
+  const canReorder = ws._isHost || room.settings.userReordering;
+  if (!canReorder) return sendTo(ws, S2C.ERROR, { code: 'FORBIDDEN', message: 'Queue reordering is disabled' });
+
+  let newState = await playbackService.promoteAutoplayToQueue(roomId, index, toIndex);
+  if (room.settings.autoplayEnabled) {
+    newState = await playbackService.ensureAutoplayQueue(roomId, room.settings) || newState;
+  }
+  if (newState) {
+    broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
+  }
 }
 
 async function handleUpdateSettings(ws, { settings }) {
@@ -623,6 +682,7 @@ function serializePlayback(state) {
     serverTime: state.serverTime,
     isPlaying: state.isPlaying,
     queue: state.queue,
+    autoplayQueue: state.autoplayQueue,
   };
 }
 

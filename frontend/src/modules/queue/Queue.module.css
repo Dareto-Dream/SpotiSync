@@ -142,3 +142,23 @@
   border: 1px solid rgba(14, 165, 233, 0.25);
   flex-shrink: 0;
 }
+
+.controls {
+  display: flex;
+  gap: 4px;
+}
+
+.iconBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text3);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.iconBtn:hover { color: var(--text); background: var(--bg2); border-color: var(--surface); }
+.iconBtn:disabled { opacity: 0.45; cursor: not-allowed; }
