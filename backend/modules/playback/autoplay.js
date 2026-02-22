@@ -45,7 +45,8 @@ function getTopKeys(weights = {}, limit = 5) {
     .map(([key]) => key);
 }
 
-function getGenre(track = {}) {
+function getGenre(track) {
+  if (!track) return null;
   return (track.genre || '')
     .toString()
     .toLowerCase()
