@@ -6,6 +6,8 @@ import {
   SkipForward,
   Play,
   Pause,
+  Image,
+  Clapperboard,
   Lock,
   PlayCircle,
   Music2,
@@ -15,12 +17,13 @@ import {
 } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import { useAuth } from '../../context/AuthContext';
-import { useAudioStreamPlayer } from './useAudioStreamPlayer';
+import { useYouTubePlayer } from './useYouTubePlayer';
 import styles from './Player.module.css';
 
 export default function Player({ large = false }) {
   const { playback, isHost, send, room, feedback } = useRoom();
   const { user } = useAuth();
+  const [videoMode, setVideoMode] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const syncRef = useRef(null);
   const currentVideoIdRef = useRef(null);
@@ -35,20 +38,15 @@ export default function Player({ large = false }) {
     playerState, isMuted,
     unlockAndPlay, play, pause, seekTo, getCurrentTimeMs,
     toggleMute, syncToServer, loadVideo,
-  } = useAudioStreamPlayer({
+  } = useYouTubePlayer({
+    containerId: 'yt-player',
     onEnded,
     onReady: () => {},
   });
 
-  const apiBase = import.meta.env.VITE_API_URL;
-  const token = typeof window !== 'undefined' ? localStorage.getItem('jam_token') : '';
-  const streamUrl = playback?.currentItem?.videoId && token
-    ? `${apiBase}/api/playback/stream/${playback.currentItem.videoId}?token=${encodeURIComponent(token)}`
-    : null;
-
   // Load new track when currentItem changes
   useEffect(() => {
-    if (!playback?.currentItem || !streamUrl) return;
+    if (!playback?.currentItem) return;
     const { videoId } = playback.currentItem;
     if (videoId === currentVideoIdRef.current) return;
     currentVideoIdRef.current = videoId;
@@ -58,11 +56,11 @@ export default function Player({ large = false }) {
       : playback.positionMs;
 
     if (unlocked) {
-      unlockAndPlay(streamUrl, startMs);
+      unlockAndPlay(videoId, startMs);
     } else {
-      loadVideo(streamUrl, startMs);
+      loadVideo(videoId, startMs);
     }
-  }, [playback?.currentItem?.videoId, streamUrl, unlocked, playback?.serverTime, playback?.positionMs, playback?.isPlaying]);
+  }, [playback?.currentItem?.videoId]);
 
   // Sync to server state periodically
   useEffect(() => {
@@ -94,11 +92,11 @@ export default function Player({ large = false }) {
 
   const handleUnlock = () => {
     setUnlocked(true);
-    if (playback?.currentItem && streamUrl) {
+    if (playback?.currentItem) {
       const livePos = playback.isPlaying
         ? playback.positionMs + (Date.now() - playback.serverTime)
         : playback.positionMs;
-      unlockAndPlay(streamUrl, livePos);
+      unlockAndPlay(playback.currentItem.videoId, livePos);
     }
   };
 
@@ -134,15 +132,23 @@ export default function Player({ large = false }) {
 
   return (
     <div className={wrapperClass}>
-      <div className={styles.albumArt}>
-        {artUrl ? (
-          <img src={artUrl} alt={track.title} className={styles.artwork} loading="lazy" />
-        ) : (
-          <div className={styles.noArt}>
-            <Music2 size={20} />
-          </div>
-        )}
+      {/* YouTube IFrame - always mounted, visibility toggled */}
+      <div className={styles.ytContainer} style={{ display: videoMode && unlocked ? 'block' : 'none' }}>
+        <div id="yt-player" style={{ width: '100%', height: '100%' }} />
       </div>
+
+      {/* Album Art Mode */}
+      {(!videoMode || !unlocked) && (
+        <div className={styles.albumArt}>
+          {artUrl ? (
+            <img src={artUrl} alt={track.title} className={styles.artwork} loading="lazy" />
+          ) : (
+            <div className={styles.noArt}>
+              <Music2 size={20} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Track Info */}
       <div className={styles.trackInfo}>
@@ -233,6 +239,13 @@ export default function Player({ large = false }) {
         )}
 
         {/* Video Mode Toggle */}
+        <button
+          className={`${styles.controlBtn} ${videoMode ? styles.active : ''}`}
+          onClick={() => setVideoMode(v => !v)}
+          title={videoMode ? 'Album Art Mode' : 'Video Mode'}
+        >
+          {videoMode ? <Image size={18} /> : <Clapperboard size={18} />}
+        </button>
       </div>
 
       {/* Autoplay unlock overlay */}

@@ -102,14 +102,6 @@ Success: 200 { "track": TrackObject }
 Errors:  404
 ```
 
-### Playback Audio Proxy
-
-#### GET /api/playback/stream/:videoId
-- Auth: `Authorization: Bearer <JWT>` header **or** `?token=<JWT>` query (query is needed for `<audio>` tags).
-- Streams a YouTube audio-only rendition for the given `videoId`.
-- Supports HTTP range requests for seek/resume.
-- Responses: `206` (partial), `200` (full), `401` (unauthorized), `404` (no audio available).
-
 ---
 
 ## Object Schemas
