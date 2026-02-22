@@ -20,7 +20,8 @@
     "redis": "^4.6.13",
     "uuid": "^9.0.0",
     "ws": "^8.16.0",
-    "ytdl-core": "^4.11.5",
+    "@distube/ytdl-core": "^4.13.4",
+    "youtube-dl-exec": "^3.0.7",
     "ytmusic-api": "^5.1.2"
   },
   "devDependencies": {
