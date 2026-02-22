@@ -62,12 +62,25 @@ function normalizeTrack(raw) {
 
 function pickThumbnail(thumbnails) {
   if (!thumbnails) return null;
-  if (typeof thumbnails === 'string') return thumbnails;
+  if (typeof thumbnails === 'string') return upscaleYoutube(thumbnails);
   if (Array.isArray(thumbnails)) {
     // Pick largest available
-    return thumbnails.sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url || null;
+    const url = thumbnails.sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url || null;
+    return upscaleYoutube(url);
   }
-  return thumbnails.url || null;
+  return upscaleYoutube(thumbnails.url || null);
+}
+
+function upscaleYoutube(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('ytimg.com')) {
+      u.pathname = u.pathname.replace(/\/(default|mqdefault|hqdefault|sddefault|maxresdefault)(\.\w+)?$/i, '/maxresdefault.jpg');
+      return u.toString();
+    }
+  } catch { return url; }
+  return url;
 }
 
 module.exports = { search, getTrack, normalizeTrack };

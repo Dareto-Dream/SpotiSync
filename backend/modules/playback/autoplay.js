@@ -58,7 +58,7 @@ function decayWeights(weights, factor = 0.985) {
   const out = {};
   for (const [k, v] of Object.entries(weights || {})) {
     const next = Number(v) * factor;
-    if (next >= 0.1) out[k] = Number(next.toFixed(4));
+    if (Math.abs(next) >= 0.1) out[k] = Number(next.toFixed(4));
   }
   return out;
 }
@@ -67,12 +67,15 @@ function learnFromTrack(profile, track, options = {}) {
   if (!track || !track.videoId) return normalizeProfile(profile);
 
   const p = normalizeProfile(profile);
-  const baseWeight = Math.max(0.1, Number(options.weight ?? 1));
+  const rawWeight = Number(options.weight ?? 1);
+  const clipped = Math.max(-2, Math.min(2, rawWeight));
   // Autoplay selections should nudge taste lightly to avoid genre lock-in
-  const weight = options.isAutoplay ? baseWeight * 0.25 : baseWeight;
+  const attenuated = options.isAutoplay ? clipped * 0.25 : clipped;
+  const magnitude = Math.max(0.1, Math.abs(attenuated));
+  const weight = Math.sign(attenuated) * magnitude;
   p.artistWeights = decayWeights(p.artistWeights);
   p.tokenWeights = decayWeights(p.tokenWeights);
-   p.genreWeights = decayWeights(p.genreWeights);
+  p.genreWeights = decayWeights(p.genreWeights);
 
   const artists = splitArtists(track.artist);
   artists.forEach((artist, i) => {

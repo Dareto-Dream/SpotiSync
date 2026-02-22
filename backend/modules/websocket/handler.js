@@ -10,6 +10,8 @@ const { C2S, S2C } = require('./events');
  * roomConnections: Map<roomId, Map<userId, WebSocket>>
  */
 const roomConnections = new Map();
+// Per-room autoplay feedback state: { trackId, likes:Set<userId>, dislikes:Set<userId> }
+const feedbackState = new Map();
 
 function getRoomClients(roomId) {
   return roomConnections.get(roomId) || new Map();
@@ -29,6 +31,43 @@ function broadcast(roomId, event, data, excludeUserId = null) {
 function sendTo(ws, event, data) {
   if (ws.readyState === 1) {
     ws.send(JSON.stringify({ event, data, ts: Date.now() }));
+  }
+}
+
+function getFeedback(roomId) {
+  const fb = feedbackState.get(roomId);
+  if (!fb) {
+    return { trackId: null, likes: new Set(), dislikes: new Set() };
+  }
+  return fb;
+}
+
+function resetFeedback(roomId, trackId = null) {
+  feedbackState.set(roomId, {
+    trackId,
+    likes: new Set(),
+    dislikes: new Set(),
+  });
+}
+
+function emitFeedback(roomId, targetWs = null) {
+  const fb = getFeedback(roomId);
+  const payload = {
+    trackId: fb.trackId,
+    likes: [...fb.likes],
+    dislikes: [...fb.dislikes],
+  };
+  if (targetWs) {
+    sendTo(targetWs, S2C.FEEDBACK_UPDATE, payload);
+  } else {
+    broadcast(roomId, S2C.FEEDBACK_UPDATE, payload);
+  }
+}
+
+function ensureFeedbackTrack(roomId, trackId) {
+  const fb = getFeedback(roomId);
+  if (fb.trackId !== trackId) {
+    resetFeedback(roomId, trackId || null);
   }
 }
 
@@ -187,6 +226,10 @@ async function handleMessage(ws, msg, tryAuth) {
         await handleVote(ws, data);
         break;
 
+      case C2S.FEEDBACK:
+        await handleFeedback(ws, data);
+        break;
+
       case C2S.UPDATE_SETTINGS:
         await handleUpdateSettings(ws, data);
         break;
@@ -228,6 +271,8 @@ async function handleJoinRoom(ws, { code }) {
     members,
     isHost: ws._isHost,
   });
+  ensureFeedbackTrack(room.id, playbackState?.currentItem?.videoId || null);
+  emitFeedback(room.id, ws);
 
   // Notify others
   broadcast(room.id, S2C.MEMBER_JOINED, {
@@ -270,7 +315,15 @@ async function doLeave(ws, isDrop) {
       reason: isDrop ? 'Host disconnected' : 'Host closed the room',
     });
     roomConnections.delete(roomId);
+    feedbackState.delete(roomId);
   } else {
+    const fb = feedbackState.get(roomId);
+    if (fb) {
+      fb.likes.delete(userId);
+      fb.dislikes.delete(userId);
+      feedbackState.set(roomId, fb);
+      emitFeedback(roomId);
+    }
     broadcast(roomId, S2C.MEMBER_LEFT, {
       user: { id: userId, username: ws._username },
       memberCount: getActiveMemberCount(roomId),
@@ -355,6 +408,9 @@ async function doSkip(roomId, settings = {}) {
     }
   }
 
+  ensureFeedbackTrack(roomId, state?.currentItem?.videoId || null);
+  emitFeedback(roomId);
+
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(state));
   broadcast(roomId, S2C.QUEUE_UPDATED, { queue: state.queue });
   await emitAutoplaySuggestions(roomId, settings);
@@ -401,6 +457,61 @@ async function handleVote(ws, { action, trackId }) {
   }
 }
 
+async function handleFeedback(ws, { trackId, value }) {
+  const roomId = ws._roomId;
+  if (!roomId || !trackId) return;
+
+  const state = await playbackService.getState(roomId);
+  if (!state?.currentItem || state.currentItem.videoId !== trackId) {
+    return sendTo(ws, S2C.ERROR, { code: 'INVALID_FEEDBACK', message: 'Feedback must target the current track.' });
+  }
+
+  const normalized = value === 'approve' ? 'approve' : value === 'disapprove' ? 'disapprove' : null;
+  if (!normalized) {
+    return sendTo(ws, S2C.ERROR, { code: 'INVALID_FEEDBACK', message: 'Value must be approve or disapprove.' });
+  }
+
+  ensureFeedbackTrack(roomId, trackId);
+  const fb = getFeedback(roomId);
+
+  const prevStatus = fb.likes.has(ws._userId)
+    ? 'approve'
+    : fb.dislikes.has(ws._userId)
+      ? 'disapprove'
+      : 'neutral';
+
+  let nextStatus = prevStatus;
+  if (normalized === 'approve') {
+    if (prevStatus === 'approve') {
+      fb.likes.delete(ws._userId);
+      nextStatus = 'neutral';
+    } else {
+      fb.likes.add(ws._userId);
+      fb.dislikes.delete(ws._userId);
+      nextStatus = 'approve';
+    }
+  } else if (normalized === 'disapprove') {
+    if (prevStatus === 'disapprove') {
+      fb.dislikes.delete(ws._userId);
+      nextStatus = 'neutral';
+    } else {
+      fb.dislikes.add(ws._userId);
+      fb.likes.delete(ws._userId);
+      nextStatus = 'disapprove';
+    }
+  }
+
+  feedbackState.set(roomId, fb);
+  emitFeedback(roomId);
+
+  const weightMap = { approve: 1, disapprove: -1, neutral: 0 };
+  const delta = weightMap[nextStatus] - weightMap[prevStatus];
+  if (delta !== 0) {
+    const weight = delta * 1.6; // stronger nudge than passive listening
+    await playbackService.learnTaste(roomId, state.currentItem, { weight });
+  }
+}
+
 async function handleQueueAdd(ws, { item }) {
   const roomId = ws._roomId;
   const room = await roomService.getRoomById(roomId);
@@ -421,6 +532,8 @@ async function handleQueueAdd(ws, { item }) {
   // If nothing is playing, start playing immediately
   if (!state.currentItem) {
     const newState = await playbackService.setCurrentItem(roomId, item, 0);
+    ensureFeedbackTrack(roomId, item.videoId);
+    emitFeedback(roomId);
     broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
   } else {
     const newState = await playbackService.addToQueue(roomId, item);
@@ -478,6 +591,8 @@ async function handleQueuePlayNow(ws, { index }) {
   });
   await playbackService.learnTaste(roomId, item, { weight: 1 });
   votingService.resetVotes(roomId);
+  ensureFeedbackTrack(roomId, item.videoId);
+  emitFeedback(roomId);
   broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
   broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue });
   await emitAutoplaySuggestions(roomId, room.settings);

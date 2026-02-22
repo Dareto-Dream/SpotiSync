@@ -12,13 +12,17 @@ import {
   PlayCircle,
   Music2,
   Gavel,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
+import { useAuth } from '../../context/AuthContext';
 import { useYouTubePlayer } from './useYouTubePlayer';
 import styles from './Player.module.css';
 
 export default function Player({ large = false }) {
-  const { playback, isHost, send, room } = useRoom();
+  const { playback, isHost, send, room, feedback } = useRoom();
+  const { user } = useAuth();
   const [videoMode, setVideoMode] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const syncRef = useRef(null);
@@ -109,6 +113,20 @@ export default function Player({ large = false }) {
 
   const track = playback?.currentItem;
   const isPlaying = playback?.isPlaying;
+  const userId = user?.id;
+
+  const likes = feedback?.likes?.length || 0;
+  const dislikes = feedback?.dislikes?.length || 0;
+  const userChoice = userId
+    ? (feedback?.likes?.includes(userId) ? 'approve' : feedback?.dislikes?.includes(userId) ? 'disapprove' : null)
+    : null;
+
+  const artUrl = track?.thumbnailUrl ? getHiResThumb(track.thumbnailUrl) : null;
+
+  const handleFeedback = (value) => {
+    if (!track) return;
+    send('autoplay_feedback', { trackId: track.videoId, value });
+  };
 
   const wrapperClass = `${styles.playerWrap} ${large ? styles.large : ''}`;
 
@@ -122,8 +140,8 @@ export default function Player({ large = false }) {
       {/* Album Art Mode */}
       {(!videoMode || !unlocked) && (
         <div className={styles.albumArt}>
-          {track?.thumbnailUrl ? (
-            <img src={track.thumbnailUrl} alt={track.title} className={styles.artwork} />
+          {artUrl ? (
+            <img src={artUrl} alt={track.title} className={styles.artwork} loading="lazy" />
           ) : (
             <div className={styles.noArt}>
               <Music2 size={20} />
@@ -198,6 +216,28 @@ export default function Player({ large = false }) {
           </button>
         )}
 
+        {/* Taste feedback (all users) */}
+        {track && (
+          <div className={styles.feedbackGroup}>
+            <button
+              className={`${styles.controlBtn} ${styles.feedbackBtn} ${userChoice === 'approve' ? styles.active : ''}`}
+              onClick={() => handleFeedback('approve')}
+              title="Approve (more like this)"
+            >
+              <ThumbsUp size={16} />
+              <span className={styles.feedbackCount}>{likes}</span>
+            </button>
+            <button
+              className={`${styles.controlBtn} ${styles.feedbackBtn} ${userChoice === 'disapprove' ? styles.active : ''}`}
+              onClick={() => handleFeedback('disapprove')}
+              title="Disapprove (less like this)"
+            >
+              <ThumbsDown size={16} />
+              <span className={styles.feedbackCount}>{dislikes}</span>
+            </button>
+          </div>
+        )}
+
         {/* Video Mode Toggle */}
         <button
           className={`${styles.controlBtn} ${videoMode ? styles.active : ''}`}
@@ -227,4 +267,16 @@ export default function Player({ large = false }) {
       )}
     </div>
   );
+}
+
+function getHiResThumb(url = '') {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('ytimg.com')) {
+      u.pathname = u.pathname.replace(/\/(mq|hq|sd|maxres)default(\.\w+)?$/i, '/maxresdefault.jpg');
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
 }

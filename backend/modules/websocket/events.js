@@ -27,6 +27,9 @@ const C2S = {
   // Voting
   VOTE: 'vote',
 
+  // Autoplay taste feedback
+  FEEDBACK: 'autoplay_feedback',
+
   // Settings
   UPDATE_SETTINGS: 'settings_update',
 };
@@ -56,6 +59,9 @@ const S2C = {
   // Voting
   VOTE_UPDATE: 'vote_update',
   VOTE_PASSED: 'vote_passed',
+
+  // Autoplay taste feedback
+  FEEDBACK_UPDATE: 'autoplay_feedback_update',
 };
 
 module.exports = { C2S, S2C };
