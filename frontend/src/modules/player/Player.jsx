@@ -25,6 +25,7 @@ export default function Player({ large = false }) {
   const { user } = useAuth();
   const [videoMode, setVideoMode] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
+  const [volume, setVolume] = useState(70);
   const syncRef = useRef(null);
   const currentVideoIdRef = useRef(null);
 
@@ -37,7 +38,7 @@ export default function Player({ large = false }) {
   const {
     playerState, isMuted,
     unlockAndPlay, play, pause, seekTo, getCurrentTimeMs,
-    toggleMute, syncToServer, loadVideo,
+    toggleMute, syncToServer, loadVideo, setVolume: setPlayerVolume,
   } = useYouTubePlayer({
     containerId: 'yt-player',
     onEnded,
@@ -114,6 +115,7 @@ export default function Player({ large = false }) {
   const track = playback?.currentItem;
   const isPlaying = playback?.isPlaying;
   const userId = user?.id;
+  const volumeKey = userId ? `jam_volume_${userId}` : 'jam_volume_guest';
 
   const likes = feedback?.likes?.length || 0;
   const dislikes = feedback?.dislikes?.length || 0;
@@ -122,6 +124,24 @@ export default function Player({ large = false }) {
     : null;
 
   const artUrl = track?.thumbnailUrl ? getHiResThumb(track.thumbnailUrl) : null;
+
+  useEffect(() => {
+    const stored = localStorage.getItem(volumeKey);
+    if (stored != null && stored !== '') {
+      const parsed = parseInt(stored, 10);
+      if (!Number.isNaN(parsed)) setVolume(Math.max(0, Math.min(100, parsed)));
+    }
+  }, [volumeKey]);
+
+  useEffect(() => {
+    setPlayerVolume(volume);
+  }, [volume, setPlayerVolume]);
+
+  const handleVolumeChange = (value) => {
+    const next = Math.max(0, Math.min(100, Math.round(value)));
+    setVolume(next);
+    localStorage.setItem(volumeKey, String(next));
+  };
 
   const handleFeedback = (value) => {
     if (!track) return;
@@ -172,6 +192,19 @@ export default function Player({ large = false }) {
         >
           {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
         </button>
+        <div className={styles.volumeGroup} title="Volume">
+          <input
+            className={styles.volumeSlider}
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={volume}
+            onChange={(e) => handleVolumeChange(e.target.value)}
+            aria-label="Volume"
+          />
+          <span className={styles.volumeValue}>{volume}%</span>
+        </div>
 
         {/* Play/Pause (host only) */}
         {isHost && (

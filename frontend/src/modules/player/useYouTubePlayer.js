@@ -9,6 +9,8 @@ export function useYouTubePlayer({ containerId, onEnded, onReady }) {
   const readyRef = useRef(false);
   const [playerState, setPlayerState] = useState('unloaded'); // unloaded|locked|ready|playing|paused|buffering
   const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolumeState] = useState(70);
+  const volumeRef = useRef(70);
   const syncTimerRef = useRef(null);
 
   // Initialize player once YT API is available
@@ -47,6 +49,9 @@ export function useYouTubePlayer({ containerId, onEnded, onReady }) {
           onReady: () => {
             readyRef.current = true;
             setPlayerState('locked'); // locked until user gesture
+            if (volumeRef.current != null) {
+              try { playerRef.current?.setVolume?.(volumeRef.current); } catch {}
+            }
             onReady?.();
           },
           onStateChange: (e) => {
@@ -132,6 +137,15 @@ export function useYouTubePlayer({ containerId, onEnded, onReady }) {
     else mute();
   }, [isMuted, mute, unmute]);
 
+  const setVolume = useCallback((next) => {
+    const normalized = Math.max(0, Math.min(100, Math.round(next)));
+    volumeRef.current = normalized;
+    setVolumeState(normalized);
+    if (playerRef.current && readyRef.current) {
+      try { playerRef.current.setVolume(normalized); } catch {}
+    }
+  }, []);
+
   /**
    * Sync to server playback state.
    * positionMs: expected current position (already drift-adjusted from server)
@@ -162,6 +176,7 @@ export function useYouTubePlayer({ containerId, onEnded, onReady }) {
   return {
     playerState,
     isMuted,
+    volume,
     loadVideo,
     unlockAndPlay,
     play,
@@ -171,6 +186,7 @@ export function useYouTubePlayer({ containerId, onEnded, onReady }) {
     mute,
     unmute,
     toggleMute,
+    setVolume,
     syncToServer,
     isReady: readyRef.current,
   };
