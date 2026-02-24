@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info, PlayCircle } from 'lucide-react';
+import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info, PlayCircle, Palette } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import Player from '../player/Player';
 import Search from '../search/Search';
 import Queue from '../queue/Queue';
@@ -14,8 +14,8 @@ import styles from './RoomPage.module.css';
 export default function RoomPage() {
   const { code } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { room, isHost, error, joinRoom, leaveRoom, votes } = useRoom();
+  const { theme, themes, setTheme } = useTheme();
   const [tab, setTab] = useState('queue');
   const [showSettings, setShowSettings] = useState(false);
   const isPlayerOnly = tab === 'player';
@@ -104,6 +104,14 @@ export default function RoomPage() {
           </div>
         </div>
         <div className={styles.headerRight}>
+          <label className={styles.themeSelect}>
+            <Palette size={16} />
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} aria-label="Theme">
+              {themes.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          </label>
           {isHost && (
             <button
               className="btn btn-secondary"

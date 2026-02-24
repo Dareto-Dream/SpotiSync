@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Music4, Radio, KeyRound } from 'lucide-react';
+import { Music4, Radio, KeyRound, Palette } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRoom } from '../../context/RoomContext';
+import { useTheme } from '../../context/ThemeContext';
 import { api } from '../auth/api';
 import styles from './LobbyPage.module.css';
 
 export default function LobbyPage() {
   const { user, logout } = useAuth();
   const { joinRoom, error: roomError } = useRoom();
+  const { theme, themes, setTheme } = useTheme();
   const navigate = useNavigate();
   const [code, setCode] = useState('');
   const [error, setError] = useState(null);
@@ -47,6 +49,14 @@ export default function LobbyPage() {
       <header className={styles.header}>
         <div className={styles.brand}><Music4 size={18} /> Jam Mode</div>
         <div className={styles.user}>
+          <label className={styles.themeSelect}>
+            <Palette size={16} />
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} aria-label="Theme">
+              {themes.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          </label>
           <span>{user?.username}</span>
           <button className="btn btn-ghost" onClick={logout}>Sign Out</button>
         </div>

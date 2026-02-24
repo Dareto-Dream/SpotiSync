@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #0d1118;
   --bg2: #111723;
   --surface: #161d2b;
@@ -11,6 +12,48 @@
   --success: #22c55e;
   --radius: 10px;
   --radius-sm: 6px;
+}
+
+:root[data-theme="ember"] {
+  color-scheme: dark;
+  --bg: #140f0c;
+  --bg2: #1b1410;
+  --surface: #221914;
+  --border: #2f231c;
+  --text: #f3e7dc;
+  --text2: #d7c5b6;
+  --text3: #b39a88;
+  --accent: #f59e0b;
+  --error: #ef4444;
+  --success: #22c55e;
+}
+
+:root[data-theme="mint"] {
+  color-scheme: dark;
+  --bg: #0b1211;
+  --bg2: #0f1817;
+  --surface: #14201e;
+  --border: #1e2c2a;
+  --text: #e5f6f2;
+  --text2: #b8d4cd;
+  --text3: #8fb2a9;
+  --accent: #34d399;
+  --error: #ef4444;
+  --success: #22c55e;
+}
+
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --bg: #f7f4ed;
+  --bg2: #f0ebe2;
+  --surface: #ffffff;
+  --border: #d9d2c6;
+  --text: #1f1b16;
+  --text2: #3a332b;
+  --text3: #6d6257;
+  --accent: #2563eb;
+  --error: #dc2626;
+  --success: #16a34a;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
