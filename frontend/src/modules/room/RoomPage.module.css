@@ -104,6 +104,11 @@
   border: none;
 }
 
+.themeSelect select option {
+  color: var(--text);
+  background: var(--surface);
+}
+
 .layout {
   display: flex;
   flex: 1;
