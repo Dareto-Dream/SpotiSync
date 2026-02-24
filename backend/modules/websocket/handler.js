@@ -537,6 +537,7 @@ async function handleQueueAdd(ws, { item }) {
   }
 
   await playbackService.learnTaste(roomId, item, { weight: 1.2 });
+  await playbackService.markAutoplaySeeded(roomId);
 
   const state = await playbackService.getState(roomId);
 
@@ -546,9 +547,15 @@ async function handleQueueAdd(ws, { item }) {
     ensureFeedbackTrack(roomId, item.videoId);
     emitFeedback(roomId);
     broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
+    if (room.settings?.autoplayEnabled) {
+      await playbackService.ensureAutoplayQueue(roomId, room.settings);
+    }
   } else {
     const newState = await playbackService.addToQueue(roomId, item);
     broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
+    if (room.settings?.autoplayEnabled) {
+      await playbackService.ensureAutoplayQueue(roomId, room.settings);
+    }
   }
 
   await emitAutoplaySuggestions(roomId, room.settings);

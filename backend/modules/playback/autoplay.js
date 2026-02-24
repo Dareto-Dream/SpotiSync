@@ -15,6 +15,11 @@ function normalizeProfile(profile = {}) {
     recentArtists: Array.isArray(profile.recentArtists) ? [...profile.recentArtists] : [],
     recentGenres: Array.isArray(profile.recentGenres) ? [...profile.recentGenres] : [],
     recentAutoplayIds: Array.isArray(profile.recentAutoplayIds) ? [...profile.recentAutoplayIds] : [],
+    autoplayExcludedIds: Array.isArray(profile.autoplayExcludedIds) ? [...profile.autoplayExcludedIds] : [],
+    autoplayExcludedSignatures: Array.isArray(profile.autoplayExcludedSignatures)
+      ? [...profile.autoplayExcludedSignatures]
+      : [],
+    autoplaySeeded: !!profile.autoplaySeeded,
     lastUpdatedAt: profile.lastUpdatedAt || Date.now(),
   };
 }
@@ -36,6 +41,26 @@ function tokenize(text = '') {
     .map(t => t.trim())
     .filter(t => t.length >= 3 && !STOP_WORDS.has(t))
     .slice(0, 10);
+}
+
+function normalizeTitleForSignature(title = '') {
+  return String(title)
+    .toLowerCase()
+    .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+    .replace(/feat\.?|ft\.?|featuring/gi, ' ')
+    .replace(/[-–—].*$/g, ' ')
+    .replace(/(remix|mix|edit|version|live|acoustic|radio|cover|karaoke|instrumental|demo|alternate|deluxe|mono|stereo|remastered|re-recorded|session|single|album|explicit|clean|extended|cut|intro|outro|solo)/gi, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getTrackSignature(track) {
+  if (!track) return null;
+  const artist = splitArtists(track.artist || '')[0] || '';
+  const title = normalizeTitleForSignature(track.title || '');
+  if (!artist || !title) return null;
+  return `${artist}::${title}`;
 }
 
 function getTopKeys(weights = {}, limit = 5) {
@@ -180,6 +205,8 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
   const profile = normalizeProfile(state?.autoplayProfile);
   const historySize = Math.max(5, Math.min(60, Number(settings.autoplayHistorySize ?? 20)));
   const disallowExplicit = settings.autoplayAllowExplicit === false;
+  const excludedIds = new Set(profile.autoplayExcludedIds.slice(-200));
+  const excludedSignatures = new Set(profile.autoplayExcludedSignatures.slice(-200));
   const recentIds = new Set([
     ...(state?.queue || []).map(t => t?.videoId).filter(Boolean),
     ...(state?.autoplayQueue || []).map(t => t?.videoId).filter(Boolean),
@@ -201,7 +228,10 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
     }
     for (const track of results) {
       if (!track?.videoId || recentIds.has(track.videoId)) continue;
+      if (excludedIds.has(track.videoId)) continue;
       if (disallowExplicit && track.isExplicit) continue;
+      const signature = getTrackSignature(track);
+      if (signature && excludedSignatures.has(signature)) continue;
       if (!candidatesById.has(track.videoId)) candidatesById.set(track.videoId, track);
     }
   }
@@ -229,6 +259,7 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
 module.exports = {
   normalizeProfile,
   learnFromTrack,
+  getTrackSignature,
   findAutoplayTrack,
   findAutoplayCandidates,
 };

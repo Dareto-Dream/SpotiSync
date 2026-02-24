@@ -114,8 +114,20 @@ async function reorderQueue(roomId, fromIndex, toIndex) {
 async function removeFromAutoplayQueue(roomId, index) {
   const state = await getState(roomId);
   if (!state) return null;
+  const target = (state.autoplayQueue || [])[index];
   const autoplayQueue = (state.autoplayQueue || []).filter((_, i) => i !== index);
-  return setState(roomId, { autoplayQueue });
+  let nextProfile = state.autoplayProfile || {};
+  if (target?.videoId) {
+    nextProfile = autoplay.normalizeProfile(nextProfile);
+    const nextIds = [...nextProfile.autoplayExcludedIds.filter(id => id !== target.videoId), target.videoId]
+      .slice(-200);
+    const signature = autoplay.getTrackSignature(target);
+    const nextSignatures = signature
+      ? [...nextProfile.autoplayExcludedSignatures.filter(s => s !== signature), signature].slice(-200)
+      : nextProfile.autoplayExcludedSignatures;
+    nextProfile = { ...nextProfile, autoplayExcludedIds: nextIds, autoplayExcludedSignatures: nextSignatures };
+  }
+  return setState(roomId, { autoplayQueue, autoplayProfile: nextProfile });
 }
 
 async function reorderAutoplayQueue(roomId, fromIndex, toIndex) {
@@ -150,10 +162,15 @@ async function ensureAutoplayQueue(roomId, settings = {}) {
     return state;
   }
 
+  const profile = autoplay.normalizeProfile(state.autoplayProfile || {});
+  if (!profile.autoplaySeeded) {
+    return state;
+  }
+
   const currentAuto = [...(state.autoplayQueue || [])];
   if (currentAuto.length >= MIN_AUTOPLAY_QUEUE) return state;
 
-  const baseState = { ...state, autoplayQueue: currentAuto };
+  const baseState = { ...state, autoplayQueue: currentAuto, autoplayProfile: profile };
   const missing = MIN_AUTOPLAY_QUEUE - currentAuto.length;
   const candidates = await autoplay.findAutoplayCandidates({
     state: baseState,
@@ -220,6 +237,10 @@ async function learnTaste(roomId, track, options = {}) {
   return updateAutoplayProfile(roomId, (profile) => autoplay.learnFromTrack(profile, track, options));
 }
 
+async function markAutoplaySeeded(roomId) {
+  return updateAutoplayProfile(roomId, (profile) => ({ ...profile, autoplaySeeded: true }));
+}
+
 async function getAutoplaySuggestions(roomId, settings, limit = 10) {
   const state = await getState(roomId);
   if (!state) return [];
@@ -248,6 +269,7 @@ module.exports = {
   getState, setState, play, pause, seek, setCurrentItem,
   addToQueue, removeFromQueue, reorderQueue, skipToNext,
   updateAutoplayProfile, learnTaste,
+  markAutoplaySeeded,
   getAutoplaySuggestions,
   removeFromAutoplayQueue, reorderAutoplayQueue, promoteAutoplayToQueue,
   ensureAutoplayQueue,
