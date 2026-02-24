@@ -403,7 +403,9 @@ async function doSkip(roomId, settings = {}) {
   if (before?.currentItem?.videoId) {
     const durationMs = Number(before.currentItem.durationMs || 0);
     const progress = durationMs > 0 ? before.positionMs / durationMs : 1;
-    const weight = progress < 0.35 ? 0.35 : 1;
+    let weight = 1;
+    if (progress < 0.1) weight = -2;
+    else if (progress < 0.35) weight = -1.5;
     await playbackService.learnTaste(roomId, before.currentItem, { weight });
   }
 
@@ -536,22 +538,27 @@ async function handleQueueAdd(ws, { item }) {
     return sendTo(ws, S2C.ERROR, { code: 'INVALID', message: 'Invalid track item' });
   }
 
-  await playbackService.learnTaste(roomId, item, { weight: 1.2 });
+  const enriched = {
+    ...item,
+    addedBy: { id: ws._userId, username: ws._username || null },
+  };
+
+  await playbackService.learnTaste(roomId, enriched, { weight: 1.2 });
 
   const state = await playbackService.getState(roomId);
 
   // If nothing is playing, start playing immediately
   if (!state.currentItem) {
-    const newState = await playbackService.setCurrentItem(roomId, item, 0);
+    const newState = await playbackService.setCurrentItem(roomId, enriched, 0);
     await playbackService.markAutoplaySeeded(roomId);
-    ensureFeedbackTrack(roomId, item.videoId);
+    ensureFeedbackTrack(roomId, enriched.videoId);
     emitFeedback(roomId);
     broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
     if (room.settings?.autoplayEnabled) {
       await playbackService.ensureAutoplayQueue(roomId, room.settings);
     }
   } else {
-    const newState = await playbackService.addToQueue(roomId, item);
+    const newState = await playbackService.addToQueue(roomId, enriched);
     broadcast(roomId, S2C.QUEUE_UPDATED, { queue: newState.queue, autoplayQueue: newState.autoplayQueue });
     if (room.settings?.autoplayEnabled) {
       await playbackService.ensureAutoplayQueue(roomId, room.settings);
