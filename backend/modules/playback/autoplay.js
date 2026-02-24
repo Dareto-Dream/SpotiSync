@@ -4,6 +4,7 @@ const STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'that', 'this', 'feat', 'official',
   'video', 'audio', 'music', 'lyrics', 'remix', 'version', 'radio', 'edit',
   'live', 'session', 'mix', 'song', 'full',
+  'i', 'me', 'my', 'you', 'your', 'yours', 'we', 'our', 'ours', 'us',
 ]);
 
 function normalizeProfile(profile = {}) {
@@ -49,7 +50,7 @@ function normalizeTitleForSignature(title = '') {
     .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
     .replace(/feat\.?|ft\.?|featuring/gi, ' ')
     .replace(/[-–—].*$/g, ' ')
-    .replace(/(remix|mix|edit|version|live|acoustic|radio|cover|karaoke|instrumental|demo|alternate|deluxe|mono|stereo|remastered|re-recorded|session|single|album|explicit|clean|extended|cut|intro|outro|solo)/gi, ' ')
+    .replace(/(remix|mix|dj|edit|version|live|acoustic|radio|cover|karaoke|instrumental|demo|alternate|deluxe|mono|stereo|remastered|re-?recorded|session|single|album|explicit|clean|extended|cut|intro|outro|solo|club|vip|bootleg|sped|slowed|nightcore|rework|dub|festival|mixshow)/gi, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -177,9 +178,9 @@ function candidateScore(track, ctx) {
   const noveltyBoost = recentlyUsedArtist ? 0 : (0.6 + varietyBias * 1.2);
   const genreBoost = genre && !recentlyUsedGenre ? 0.35 * (1 + varietyBias) : 0;
 
-  return artistAffinity * 1.7
-    + tokenAffinity * 0.8
-    + genreAffinity * 1.4
+  return genreAffinity * 2.2
+    + artistAffinity * 1.7
+    + tokenAffinity * 0.35
     + noveltyBoost
     + genreBoost
     - recentPenalty

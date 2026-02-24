@@ -537,13 +537,13 @@ async function handleQueueAdd(ws, { item }) {
   }
 
   await playbackService.learnTaste(roomId, item, { weight: 1.2 });
-  await playbackService.markAutoplaySeeded(roomId);
 
   const state = await playbackService.getState(roomId);
 
   // If nothing is playing, start playing immediately
   if (!state.currentItem) {
     const newState = await playbackService.setCurrentItem(roomId, item, 0);
+    await playbackService.markAutoplaySeeded(roomId);
     ensureFeedbackTrack(roomId, item.videoId);
     emitFeedback(roomId);
     broadcast(roomId, S2C.NOW_PLAYING, serializePlayback(newState));
@@ -607,6 +607,7 @@ async function handleQueuePlayNow(ws, { index }) {
     positionMs: 0,
     isPlaying: true,
   });
+  await playbackService.markAutoplaySeeded(roomId);
   await playbackService.learnTaste(roomId, item, { weight: 1 });
   votingService.resetVotes(roomId);
   ensureFeedbackTrack(roomId, item.videoId);
