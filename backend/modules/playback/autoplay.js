@@ -14,6 +14,9 @@ function normalizeProfile(profile = {}) {
     genreWeights: { ...(profile.genreWeights || {}) },
     eraWeights: { ...(profile.eraWeights || {}) },
     artistGraph: { ...(profile.artistGraph || {}) },
+    genreConfidence: { ...(profile.genreConfidence || {}) },
+    artistGenreCounts: { ...(profile.artistGenreCounts || {}) },
+    sessionArtistPlayCount: { ...(profile.sessionArtistPlayCount || {}) },
     recentTrackIds: Array.isArray(profile.recentTrackIds) ? [...profile.recentTrackIds] : [],
     recentArtists: Array.isArray(profile.recentArtists) ? [...profile.recentArtists] : [],
     recentGenres: Array.isArray(profile.recentGenres) ? [...profile.recentGenres] : [],
@@ -27,6 +30,10 @@ function normalizeProfile(profile = {}) {
     autoplaySeeded: !!profile.autoplaySeeded,
     lastUpdatedAt: profile.lastUpdatedAt || Date.now(),
   };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function splitArtists(artist = '') {
@@ -84,14 +91,42 @@ function getTopKeys(weights = {}, limit = 5) {
     .map(([key]) => key);
 }
 
-function getGenre(track) {
+function getGenre(track, profile = null) {
   if (!track) return null;
-  return (track.genre || '')
+  const raw = (track.genre || '')
     .toString()
     .toLowerCase()
     .trim()
-    .replace(/\s+music$/, '') // normalize "pop music" -> "pop"
-    || null;
+    .replace(/\s+music$/, ''); // normalize "pop music" -> "pop"
+  if (raw) return raw;
+  return inferGenreFromGraph(track, profile);
+}
+
+function inferGenreFromGraph(track, profile) {
+  if (!track || !profile) return null;
+  const artist = splitArtists(track.artist || '')[0];
+  if (!artist) return null;
+  const graph = profile.artistGraph || {};
+  const artistGenreCounts = profile.artistGenreCounts || {};
+  const neighbors = graph[artist];
+  if (!neighbors) return null;
+  const ranked = Object.entries(neighbors)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name]) => name);
+  const genreVotes = {};
+  ranked.forEach((neighbor) => {
+    const counts = artistGenreCounts[neighbor];
+    if (!counts) return;
+    const topGenre = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])[0];
+    if (!topGenre) return;
+    const genre = topGenre[0];
+    genreVotes[genre] = (genreVotes[genre] || 0) + 1;
+  });
+  const best = Object.entries(genreVotes)
+    .sort((a, b) => b[1] - a[1])[0];
+  return best ? best[0] : null;
 }
 
 function getEra(track) {
@@ -203,7 +238,16 @@ function learnFromTrack(profile, track, options = {}) {
   // Autoplay selections should nudge taste lightly to avoid genre lock-in
   const attenuated = options.isAutoplay ? clipped * 0.25 : clipped;
   const magnitude = Math.max(0.1, Math.abs(attenuated));
-  const weight = Math.sign(attenuated) * magnitude;
+  let weight = Math.sign(attenuated) * magnitude;
+  const playRatio = typeof options.playRatio === 'number' ? options.playRatio : null;
+  if (playRatio !== null) {
+    if (playRatio >= 0.95) weight *= 1.25;
+    if (playRatio <= 0.35) weight *= 0.6;
+  }
+  if (options.followedBySimilar) weight *= 1.15;
+  if (options.styleShift) weight *= 0.6;
+  const durationMs = Number(track.durationMs || 0);
+  if (durationMs >= 9 * 60 * 1000) weight *= 0.4;
   const decay = getAdaptiveDecay(p);
   p.artistWeights = decayWeights(p.artistWeights, decay);
   p.tokenWeights = decayWeights(p.tokenWeights, decay);
@@ -213,6 +257,7 @@ function learnFromTrack(profile, track, options = {}) {
   const artists = splitArtists(track.artist);
   artists.forEach((artist, i) => {
     p.artistWeights[artist] = Number(((p.artistWeights[artist] || 0) + weight * (1 - i * 0.18)).toFixed(4));
+    p.sessionArtistPlayCount[artist] = (p.sessionArtistPlayCount[artist] || 0) + 1;
   });
 
   const tokens = tokenize(`${track.title || ''} ${track.album || ''}`);
@@ -224,6 +269,20 @@ function learnFromTrack(profile, track, options = {}) {
   if (genre) {
     p.genreWeights[genre] = Number(((p.genreWeights[genre] || 0) + weight * 1.05).toFixed(4));
     p.recentGenres = [...p.recentGenres.filter(g => g !== genre), genre].slice(-60);
+    if (weight > 0) {
+      const next = clamp((p.genreConfidence[genre] || 0) + 0.2, 0, 1);
+      p.genreConfidence[genre] = Number(next.toFixed(4));
+    }
+    if (typeof options.genreConfidenceDelta === 'number') {
+      const next = clamp((p.genreConfidence[genre] || 0) + options.genreConfidenceDelta, 0, 1);
+      p.genreConfidence[genre] = Number(next.toFixed(4));
+    }
+    if (!p.artistGenreCounts) p.artistGenreCounts = {};
+    artists.forEach((artist) => {
+      if (!artist) return;
+      if (!p.artistGenreCounts[artist]) p.artistGenreCounts[artist] = {};
+      p.artistGenreCounts[artist][genre] = (p.artistGenreCounts[artist][genre] || 0) + 1;
+    });
   }
 
   const era = getEra(track);
@@ -243,7 +302,8 @@ function learnFromTrack(profile, track, options = {}) {
     p.recentSignatures = recent.slice(-120);
   }
 
-  if (artists.length && p.recentArtists.length) {
+  const allowGraph = options.allowArtistGraph !== false && weight > 0;
+  if (allowGraph && artists.length && p.recentArtists.length) {
     const recentArtistWindow = p.recentArtists.slice(-12);
     const graph = { ...(p.artistGraph || {}) };
     artists.forEach((artist) => {
@@ -256,6 +316,15 @@ function learnFromTrack(profile, track, options = {}) {
       });
     });
     p.artistGraph = pruneArtistGraph(graph);
+  }
+
+  if (options.excludeSignature) {
+    const signature = getTrackSignature(track);
+    if (signature) {
+      const maxWindow = Number(options.excludeSignatureWindow ?? 25);
+      const next = [...p.autoplayExcludedSignatures.filter(s => s !== signature), signature].slice(-maxWindow);
+      p.autoplayExcludedSignatures = next;
+    }
   }
 
   p.recentTrackIds = [...p.recentTrackIds.filter(id => id !== track.videoId), track.videoId].slice(-120);
@@ -326,7 +395,7 @@ function candidateScore(track, ctx) {
   const varietyBias = variety / 100;
   const artists = splitArtists(track.artist);
   const tokens = tokenize(`${track.title || ''} ${track.album || ''}`);
-  const genre = getGenre(track);
+  const genre = getGenre(track, ctx.profile);
   const era = getEra(track);
 
   let artistAffinity = 0;
@@ -367,12 +436,14 @@ function candidateScore(track, ctx) {
   const noveltyBoost = recentlyUsedArtist ? 0 : (0.6 + varietyBias * 1.2);
   const genreBoost = genre && !recentlyUsedGenre ? 0.35 * (1 + varietyBias) : 0;
 
-  const profileScore = genreAffinity * 2.2
+  const genreConfidence = genre ? (ctx.profile.genreConfidence?.[genre] ?? 0.6) : 0;
+
+  const profileScore = genreAffinity * 2.2 * genreConfidence
     + artistAffinity * 1.7
     + tokenAffinity * 0.35
     + eraAffinity * 0.6;
 
-  const recentWindowScore = recentGenreAffinity * 2.2
+  const recentWindowScore = recentGenreAffinity * 2.2 * genreConfidence
     + recentArtistAffinity * 1.7
     + recentTokenAffinity * 0.35
     + recentEraAffinity * 0.6;
@@ -390,7 +461,27 @@ function candidateScore(track, ctx) {
   const hasArtistOverlap = artists.some(a => ctx.overlapArtists.has(a));
   const hasTokenOverlap = tokens.some(t => ctx.overlapTokens.has(t));
   const hasGenreOverlap = genre ? ctx.overlapGenres.has(genre) : false;
-  const noveltySpikePenalty = (!hasArtistOverlap && !hasTokenOverlap && !hasGenreOverlap) ? 2.25 : 0;
+  const noveltySpikePenalty = (!hasArtistOverlap && !hasTokenOverlap && !hasGenreOverlap)
+    ? (3.0 - (variety * 0.02))
+    : 0;
+
+  let momentumBoost = 0;
+  if (ctx.dominantGenre && genre) {
+    momentumBoost = ctx.dominantGenre === genre ? 0.9 : -1.4;
+  }
+
+  let eraBoost = 0;
+  if (ctx.dominantEra && era) {
+    eraBoost = ctx.dominantEra === era ? 0.7 : 0;
+  }
+
+  let fatiguePenalty = 0;
+  if (ctx.sessionArtistPlayCount) {
+    artists.forEach((artist) => {
+      const count = ctx.sessionArtistPlayCount[artist] || 0;
+      fatiguePenalty += Math.log(count + 1) * 0.8;
+    });
+  }
 
   const score = (profileScore * 0.55)
     + (recentWindowScore * 1.35)
@@ -398,9 +489,12 @@ function candidateScore(track, ctx) {
     + similarityBoost
     + noveltyBoost
     + genreBoost
+    + momentumBoost
+    + eraBoost
     - recentPenalty
     - energyPenalty
     - noveltySpikePenalty
+    - fatiguePenalty
     + Math.random() * 0.12;
 
   return {
@@ -413,6 +507,7 @@ function candidateScore(track, ctx) {
       profileGenreAffinity: genreAffinity,
       recentGenreAffinity,
       similarityBoost,
+      genreConfidence,
     },
   };
 }
@@ -466,6 +561,41 @@ function detectSessionTakeover(state) {
   });
 
   return Object.values(counts).some(count => count >= 4);
+}
+
+const searchCache = new Map(); // roomId -> Map<query, { ts, results }>
+const SEARCH_TTL_MS = 90 * 1000;
+
+function getRoomSearchCache(roomId) {
+  if (!roomId) return null;
+  if (!searchCache.has(roomId)) searchCache.set(roomId, new Map());
+  return searchCache.get(roomId);
+}
+
+async function cachedSearch(roomId, query, limit) {
+  if (!query) return [];
+  const cache = getRoomSearchCache(roomId);
+  const now = Date.now();
+  if (cache) {
+    const cached = cache.get(query);
+    if (cached && now - cached.ts < SEARCH_TTL_MS) {
+      return cached.results.slice(0, limit);
+    }
+  }
+  let results = [];
+  try {
+    results = await searchService.search(query, limit);
+  } catch {
+    return [];
+  }
+  if (cache) {
+    cache.set(query, { ts: now, results });
+    // prune old entries
+    for (const [key, value] of cache.entries()) {
+      if (now - value.ts > SEARCH_TTL_MS * 2) cache.delete(key);
+    }
+  }
+  return results;
 }
 
 async function findAutoplayTrack({ state, settings }) {
@@ -538,18 +668,25 @@ async function buildAutoplayScoredCandidates({ state, settings }) {
   const genreCooldown = new Set(profile.recentGenres.slice(-3));
   const recentWindow = buildRecentWindow(profile, 5);
   const recentEnergy = energyScore(Object.keys(recentWindow.tokenWeights || {})) / Math.max(1, Object.keys(recentWindow.tokenWeights || {}).length);
+  const recentGenreWindow = profile.recentGenres.slice(-5).filter(Boolean);
+  const dominantGenre = recentGenreWindow
+    .reduce((acc, genre) => {
+      acc[genre] = (acc[genre] || 0) + 1;
+      return acc;
+    }, {});
+  const dominantGenreEntry = Object.entries(dominantGenre).sort((a, b) => b[1] - a[1])[0];
+  const recentEraWindow = profile.recentEras.slice(-4).filter(Boolean);
+  const dominantEra = recentEraWindow.length === 4 && recentEraWindow.every(era => era === recentEraWindow[0])
+    ? recentEraWindow[0]
+    : null;
 
   const queries = buildQueries({ settings, profile, seedTrack: state?.currentItem });
   const candidatesById = new Map();
+  const roomId = state?.roomId || null;
 
   const seedResults = [];
   for (const query of queries) {
-    let results = [];
-    try {
-      results = await searchService.search(query, 20);
-    } catch {
-      continue;
-    }
+    const results = await cachedSearch(roomId, query, 20);
     seedResults.push(...results);
   }
 
@@ -577,10 +714,27 @@ async function buildAutoplayScoredCandidates({ state, settings }) {
     const artists = splitArtists(track.artist);
     if (artists.some(a => hardArtistBlock.has(a))) return;
     if (artists.some(a => artistCooldown.has(a))) return;
-    const genre = getGenre(track);
+    const genre = getGenre(track, profile);
     if (genre && genreCooldown.has(genre)) return;
     if (!candidatesById.has(track.videoId)) candidatesById.set(track.videoId, track);
   };
+
+  const recentArtistSeeds = getTopKeys(recentWindow.artistWeights, 5);
+  for (const seedArtist of recentArtistSeeds) {
+    const neighbors = Object.entries(profile.artistGraph?.[seedArtist] || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name]) => name);
+    for (const neighbor of neighbors) {
+      if (expandedSearches.size >= 60) break;
+      const key = `graph:${neighbor}`;
+      if (expandedSearches.has(key)) continue;
+      expandedSearches.add(key);
+      const results = await cachedSearch(roomId, `${neighbor} mix`, 20);
+      results.forEach(enqueueCandidate);
+    }
+    if (expandedSearches.size >= 60) break;
+  }
 
   seedResults.forEach(enqueueCandidate);
 
@@ -589,16 +743,14 @@ async function buildAutoplayScoredCandidates({ state, settings }) {
     const seed = seedResults[i];
     if (!seed) continue;
     const artist = splitArtists(seed.artist)[0];
-    const genre = getGenre(seed);
+    const genre = getGenre(seed, profile);
 
     if (artist && expandedSearches.size < 60) {
       const key = `artist:${artist}`;
       if (!expandedSearches.has(key)) {
         expandedSearches.add(key);
-        try {
-          const results = await searchService.search(`${artist} mix`, 20);
-          results.forEach(enqueueCandidate);
-        } catch {}
+        const results = await cachedSearch(roomId, `${artist} mix`, 20);
+        results.forEach(enqueueCandidate);
       }
     }
 
@@ -606,10 +758,8 @@ async function buildAutoplayScoredCandidates({ state, settings }) {
       const key = `genre:${genre}`;
       if (!expandedSearches.has(key)) {
         expandedSearches.add(key);
-        try {
-          const results = await searchService.search(`${genre} music`, 20);
-          results.forEach(enqueueCandidate);
-        } catch {}
+        const results = await cachedSearch(roomId, `${genre} music`, 20);
+        results.forEach(enqueueCandidate);
       }
     }
 
@@ -632,23 +782,34 @@ async function buildAutoplayScoredCandidates({ state, settings }) {
     ...Object.keys(recentWindow.genreWeights || {}),
   ]);
 
-  return candidates
-    .map(track => {
-      const scored = candidateScore(track, {
-        settings,
-        profile,
-        queueBoost,
-        recentWindow,
-        recentEnergy,
-        recentArtists,
-        recentGenres,
-        overlapArtists,
-        overlapTokens,
-        overlapGenres,
-      });
-      return { track, score: scored.score, meta: scored.meta };
-    })
-    .sort((a, b) => b.score - a.score);
+  const scored = candidates.map(track => {
+    const scoredTrack = candidateScore(track, {
+      settings,
+      profile,
+      queueBoost,
+      recentWindow,
+      recentEnergy,
+      recentArtists,
+      recentGenres,
+      overlapArtists,
+      overlapTokens,
+      overlapGenres,
+      dominantGenre: dominantGenreEntry?.[1] >= 3 ? dominantGenreEntry[0] : null,
+      dominantEra,
+      sessionArtistPlayCount: profile.sessionArtistPlayCount || {},
+    });
+    return { track, score: scoredTrack.score, meta: scoredTrack.meta };
+  });
+
+  const clustered = new Map();
+  for (const entry of scored) {
+    const signature = getTrackSignature(entry.track);
+    const key = signature || entry.track.videoId;
+    const existing = clustered.get(key);
+    if (!existing || entry.score > existing.score) clustered.set(key, entry);
+  }
+
+  return [...clustered.values()].sort((a, b) => b.score - a.score);
 }
 
 function rerankForVariety(scored, limit) {
@@ -693,6 +854,7 @@ module.exports = {
   normalizeProfile,
   learnFromTrack,
   getTrackSignature,
+  getGenre,
   findAutoplayTrack,
   findAutoplayCandidates,
 };

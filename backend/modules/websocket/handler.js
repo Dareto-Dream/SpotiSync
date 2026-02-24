@@ -400,18 +400,34 @@ async function doSkip(roomId, settings = {}) {
   votingService.resetVotes(roomId);
 
   const before = await playbackService.getState(roomId);
-  if (before?.currentItem?.videoId) {
-    const durationMs = Number(before.currentItem.durationMs || 0);
-    const progress = durationMs > 0 ? before.positionMs / durationMs : 1;
-    let weight = 1;
-    if (progress < 0.1) weight = -2;
-    else if (progress < 0.35) weight = -1.5;
-    await playbackService.learnTaste(roomId, before.currentItem, { weight });
-  }
+  const beforeItem = before?.currentItem || null;
+  const durationMs = Number(beforeItem?.durationMs || 0);
+  const progress = durationMs > 0 ? before.positionMs / durationMs : 1;
+  let weight = 0;
+  if (progress < 0.12) weight = -2;
+  else if (progress < 0.35) weight = -1;
+  else if (progress < 0.7) weight = -0.25;
 
   let result = await playbackService.skipToNext(roomId, settings);
   if (!result) return;
   let state = result.state;
+
+  if (beforeItem?.videoId && weight !== 0) {
+    const prevGenre = autoplayService.getGenre(beforeItem);
+    const nextGenre = autoplayService.getGenre(state?.currentItem || null);
+    const styleShift = prevGenre && nextGenre ? prevGenre !== nextGenre : false;
+    const followedBySimilar = prevGenre && nextGenre ? prevGenre === nextGenre : false;
+    const earlySkip = progress < 0.35;
+    await playbackService.learnTaste(roomId, beforeItem, {
+      weight,
+      playRatio: progress,
+      styleShift,
+      followedBySimilar,
+      genreConfidenceDelta: earlySkip ? -0.35 : undefined,
+      excludeSignature: earlySkip,
+      excludeSignatureWindow: 25,
+    });
+  }
 
   if (result.usedAutoplay && state?.currentItem) {
     await playbackService.learnTaste(roomId, state.currentItem, { weight: 0.8, isAutoplay: true });
