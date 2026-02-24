@@ -16,6 +16,7 @@ function normalizeProfile(profile = {}) {
     recentArtists: Array.isArray(profile.recentArtists) ? [...profile.recentArtists] : [],
     recentGenres: Array.isArray(profile.recentGenres) ? [...profile.recentGenres] : [],
     recentAutoplayIds: Array.isArray(profile.recentAutoplayIds) ? [...profile.recentAutoplayIds] : [],
+    recentSignatures: Array.isArray(profile.recentSignatures) ? [...profile.recentSignatures] : [],
     autoplayExcludedIds: Array.isArray(profile.autoplayExcludedIds) ? [...profile.autoplayExcludedIds] : [],
     autoplayExcludedSignatures: Array.isArray(profile.autoplayExcludedSignatures)
       ? [...profile.autoplayExcludedSignatures]
@@ -62,6 +63,15 @@ function getTrackSignature(track) {
   const title = normalizeTitleForSignature(track.title || '');
   if (!artist || !title) return null;
   return `${artist}::${title}`;
+}
+
+function getSignatureTokens(track) {
+  const artist = splitArtists(track?.artist || '')[0] || '';
+  const title = normalizeTitleForSignature(track?.title || '');
+  if (!artist || !title) return null;
+  const tokens = tokenize(title).slice(0, 8);
+  if (!tokens.length) return null;
+  return { artist, tokens };
 }
 
 function getTopKeys(weights = {}, limit = 5) {
@@ -122,6 +132,13 @@ function learnFromTrack(profile, track, options = {}) {
 
   if (options.isAutoplay) {
     p.recentAutoplayIds = [...p.recentAutoplayIds.filter(id => id !== track.videoId), track.videoId].slice(-50);
+  }
+
+  const signatureTokens = getSignatureTokens(track);
+  if (signatureTokens) {
+    const recent = p.recentSignatures.filter(s => s?.artist && Array.isArray(s.tokens));
+    recent.push(signatureTokens);
+    p.recentSignatures = recent.slice(-120);
   }
 
   p.recentTrackIds = [...p.recentTrackIds.filter(id => id !== track.videoId), track.videoId].slice(-120);
@@ -208,6 +225,19 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
   const disallowExplicit = settings.autoplayAllowExplicit === false;
   const excludedIds = new Set(profile.autoplayExcludedIds.slice(-200));
   const excludedSignatures = new Set(profile.autoplayExcludedSignatures.slice(-200));
+  const recentSignaturePool = [
+    ...(profile.recentSignatures || []),
+  ];
+  const currentSignature = getSignatureTokens(state?.currentItem);
+  if (currentSignature) recentSignaturePool.push(currentSignature);
+  for (const t of state?.queue || []) {
+    const sig = getSignatureTokens(t);
+    if (sig) recentSignaturePool.push(sig);
+  }
+  for (const t of state?.autoplayQueue || []) {
+    const sig = getSignatureTokens(t);
+    if (sig) recentSignaturePool.push(sig);
+  }
   const recentIds = new Set([
     ...(state?.queue || []).map(t => t?.videoId).filter(Boolean),
     ...(state?.autoplayQueue || []).map(t => t?.videoId).filter(Boolean),
@@ -233,6 +263,20 @@ async function findAutoplayCandidates({ state, settings, limit = 10 }) {
       if (disallowExplicit && track.isExplicit) continue;
       const signature = getTrackSignature(track);
       if (signature && excludedSignatures.has(signature)) continue;
+      const candidateSig = getSignatureTokens(track);
+      if (candidateSig && recentSignaturePool.length) {
+        const candidateSet = new Set(candidateSig.tokens);
+        const hasOverlap = recentSignaturePool.some((sig) => {
+          if (sig.artist !== candidateSig.artist) return false;
+          let overlap = 0;
+          for (const tok of sig.tokens) {
+            if (candidateSet.has(tok)) overlap++;
+            if (overlap >= 3) return true;
+          }
+          return false;
+        });
+        if (hasOverlap) continue;
+      }
       if (!candidatesById.has(track.videoId)) candidatesById.set(track.videoId, track);
     }
   }
