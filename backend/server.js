@@ -15,6 +15,7 @@ const { setupWebSocket } = require('./modules/websocket/handler');
 const authRoutes = require('./modules/auth/routes');
 const roomRoutes = require('./modules/rooms/routes');
 const searchRoutes = require('./modules/search/routes');
+const mediaRoutes = require('./modules/media/routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -50,6 +51,7 @@ app.use('/api/', limiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/media', mediaRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
