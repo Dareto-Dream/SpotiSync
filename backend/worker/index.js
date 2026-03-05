@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { spawn } = require('child_process');
 
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:4000').replace(/\/$/, '');
@@ -17,6 +18,18 @@ if (!WORKER_TOKEN) {
   process.exit(1);
 }
 
+function log(message) {
+  console.log(`[Cookie Worker] ${new Date().toISOString()} ${message}`);
+}
+
+function logError(message, err) {
+  if (err) {
+    console.error(`[Cookie Worker] ${new Date().toISOString()} ${message}`, err);
+    return;
+  }
+  console.error(`[Cookie Worker] ${new Date().toISOString()} ${message}`);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -29,7 +42,12 @@ async function api(path, options = {}) {
     ...(options.headers || {}),
   };
 
+  const method = options.method || 'GET';
+  const start = Date.now();
+  log(`API ${method} ${path} -> ${url}`);
+
   const response = await fetch(url, { ...options, headers });
+  log(`API ${method} ${path} <- ${response.status} (${Date.now() - start}ms)`);
   return response;
 }
 
@@ -69,21 +87,27 @@ function runYtDlp(url) {
   args.push(url);
 
   return new Promise((resolve, reject) => {
+    log(`yt-dlp start url=${url}`);
+    log(`yt-dlp args=${[YTDLP_BIN, ...args].join(' ')}`);
     const child = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let stderrBytes = 0;
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
     });
 
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderrBytes += Buffer.byteLength(text, 'utf8');
+      stderr += text;
     });
 
     child.on('error', (err) => reject(err));
     child.on('close', (code) => {
       if (code !== 0) {
+        logError(`yt-dlp failed code=${code} stderrBytes=${stderrBytes}`);
         return reject(new Error(`yt-dlp exited with code ${code}: ${stderr.trim() || 'unknown error'}`));
       }
 
@@ -93,9 +117,11 @@ function runYtDlp(url) {
         .filter(Boolean)[0];
 
       if (!audioUrl) {
+        logError(`yt-dlp returned no audio URL stderrBytes=${stderrBytes}`);
         return reject(new Error('yt-dlp did not return an audio URL'));
       }
 
+      log(`yt-dlp success audioUrl=${audioUrl} stderrBytes=${stderrBytes}`);
       resolve({
         audioUrl,
         fetchedAt: new Date().toISOString(),
@@ -119,6 +145,7 @@ async function pollOnce() {
 }
 
 async function submitResult(jobId, payload) {
+  log(`Submit result job=${jobId} success=${payload?.success === true}`);
   const res = await api(`/api/media/worker/jobs/${encodeURIComponent(jobId)}/result`, {
     method: 'POST',
     body: JSON.stringify({
@@ -138,6 +165,7 @@ async function processJob(job) {
   const url = job.payload?.url || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : null);
 
   if (!url) {
+    logError(`Job ${job.id} missing URL in payload`);
     await submitResult(job.id, {
       success: false,
       error: 'Missing URL in job payload',
@@ -146,6 +174,8 @@ async function processJob(job) {
   }
 
   try {
+    const start = Date.now();
+    log(`Job ${job.id} start video=${videoId || 'unknown'} url=${url}`);
     const extracted = await runYtDlp(url);
     await submitResult(job.id, {
       success: true,
@@ -154,7 +184,9 @@ async function processJob(job) {
         workerId: WORKER_ID,
       },
     });
+    log(`Job ${job.id} complete in ${Date.now() - start}ms`);
   } catch (err) {
+    logError(`Job ${job.id} failed`, err.message);
     await submitResult(job.id, {
       success: false,
       error: err.message,
@@ -163,13 +195,13 @@ async function processJob(job) {
 }
 
 async function start() {
-  console.log(`[Cookie Worker] Starting ${WORKER_ID}, backend=${BACKEND_URL}, browser=${COOKIES_BROWSER}`);
+  log(`Starting ${WORKER_ID}, backend=${BACKEND_URL}, browser=${COOKIES_BROWSER}`);
 
   setInterval(async () => {
     try {
       await heartbeat();
     } catch (err) {
-      console.error('[Cookie Worker] Heartbeat error:', err.message);
+      logError('Heartbeat error', err.message);
     }
   }, HEARTBEAT_INTERVAL_MS).unref();
 
@@ -178,19 +210,19 @@ async function start() {
       await heartbeat();
       const job = await pollOnce();
       if (job) {
-        console.log(`[Cookie Worker] Processing job ${job.id} for video ${job.payload?.videoId || 'unknown'}`);
+        log(`Processing job ${job.id} for video ${job.payload?.videoId || 'unknown'}`);
         await processJob(job);
       } else {
         await sleep(POLL_INTERVAL_MS);
       }
     } catch (err) {
-      console.error('[Cookie Worker] Loop error:', err.message);
+      logError('Loop error', err.message);
       await sleep(POLL_INTERVAL_MS);
     }
   }
 }
 
 start().catch((err) => {
-  console.error('[Cookie Worker] Fatal error:', err.message);
+  logError('Fatal error', err.message);
   process.exit(1);
 });
