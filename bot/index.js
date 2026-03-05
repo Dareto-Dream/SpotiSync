@@ -78,7 +78,8 @@ async function loginBackend() {
   }
 
   const data = await res.json();
-  backendToken = data.accessToken || null;
+  // Backend auth routes respond with { token, user }
+  backendToken = data.token || data.accessToken || null;
   backendTokenExp = backendToken ? parseJwtExp(backendToken) : 0;
   return backendToken;
 }
