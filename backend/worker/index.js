@@ -1,7 +1,7 @@
 require('dotenv').config();
-const http = require('http');
 const { randomUUID } = require('crypto');
 const { spawn } = require('child_process');
+const WebSocket = require('ws');
 
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:4000').replace(/\/$/, '');
 const WORKER_ID = process.env.WORKER_ID || `worker-${Math.random().toString(36).slice(2, 8)}`;
@@ -10,20 +10,15 @@ const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS || '3000',
 const HEARTBEAT_INTERVAL_MS = parseInt(process.env.WORKER_HEARTBEAT_INTERVAL_MS || '10000', 10);
 const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
-const STREAM_HOST = process.env.WORKER_STREAM_HOST || '0.0.0.0';
-const STREAM_PORT = parseInt(process.env.WORKER_STREAM_PORT || '4011', 10);
-const STREAM_PATH_PREFIX = process.env.WORKER_STREAM_PATH_PREFIX || '/stream';
-const STREAM_TTL_MS = parseInt(process.env.WORKER_STREAM_TTL_MS || String(2 * 60 * 1000), 10);
 const ENABLE_FFMPEG_TRANSCODE = String(process.env.WORKER_ENABLE_FFMPEG_TRANSCODE || 'false').toLowerCase() === 'true';
 const FFMPEG_ARGS = process.env.WORKER_FFMPEG_ARGS || '-hide_banner -loglevel error -i pipe:0 -vn -f opus -acodec libopus -ar 48000 -ac 2 pipe:1';
-const WORKER_PUBLIC_BASE_URL = (process.env.WORKER_PUBLIC_BASE_URL || `http://localhost:${STREAM_PORT}`).replace(/\/$/, '');
+const WORKER_WS_URL = process.env.WORKER_WS_URL || toWorkerWsUrl(BACKEND_URL);
 
 // Example: chrome, edge, firefox, brave
 const COOKIES_BROWSER = process.env.WORKER_COOKIES_BROWSER || 'chrome';
 // Optional profile path for chromium-based browsers.
 const COOKIES_PROFILE = process.env.WORKER_COOKIES_PROFILE || '';
 const WORKER_CAPABILITIES = process.env.WORKER_CAPABILITIES || '';
-const streamSessions = new Map(); // token -> { token, url, videoId, jobId, expiresAt }
 
 if (!WORKER_TOKEN) {
   console.error('[Cookie Worker] Missing WORKER_TOKEN env var. Exiting.');
@@ -44,6 +39,12 @@ function logError(message, err) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toWorkerWsUrl(httpUrl) {
+  if (httpUrl.startsWith('https://')) return httpUrl.replace(/^https:/, 'wss:') + '/ws-worker';
+  if (httpUrl.startsWith('http://')) return httpUrl.replace(/^http:/, 'ws:') + '/ws-worker';
+  return `ws://${httpUrl.replace(/\/$/, '')}/ws-worker`;
 }
 
 function tokenizeArgs(value) {
@@ -103,202 +104,194 @@ function buildYtDlpStreamArgs(url) {
   return args;
 }
 
-function cleanupExpiredSessions() {
-  const now = Date.now();
-  for (const [token, session] of streamSessions) {
-    if (session.expiresAt <= now) {
-      streamSessions.delete(token);
-    }
-  }
+function getStreamContentType() {
+  return ENABLE_FFMPEG_TRANSCODE ? 'audio/opus' : 'application/octet-stream';
 }
 
-function createStreamSession(job) {
+function openWorkerSocket() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(WORKER_WS_URL);
+    ws.binaryType = 'nodebuffer';
+    let authed = false;
+
+    const fail = (err) => {
+      try { ws.close(); } catch {}
+      reject(err);
+    };
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ event: 'auth', data: { token: WORKER_TOKEN, workerId: WORKER_ID } }));
+    });
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return;
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (msg.event === 'authed') {
+        authed = true;
+        resolve(ws);
+      }
+      if (msg.event === 'error' && !authed) {
+        fail(new Error(msg?.data?.message || 'Worker WS auth failed'));
+      }
+    });
+
+    ws.on('error', (err) => {
+      if (!authed) fail(err);
+    });
+  });
+}
+
+async function waitForStreamStart(ws, proxyToken) {
+  return new Promise((resolve, reject) => {
+    const onMessage = (data, isBinary) => {
+      if (isBinary) return;
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (msg.event === 'stream_start' && msg?.data?.proxyToken === proxyToken) {
+        cleanup();
+        resolve(true);
+      }
+      if (msg.event === 'stream_cancel' && msg?.data?.proxyToken === proxyToken) {
+        cleanup();
+        resolve(false);
+      }
+    };
+
+    const onClose = () => {
+      cleanup();
+      reject(new Error('Worker WS closed before stream start'));
+    };
+
+    const cleanup = () => {
+      ws.off('message', onMessage);
+      ws.off('close', onClose);
+    };
+
+    ws.on('message', onMessage);
+    ws.on('close', onClose);
+  });
+}
+
+function pumpStreamToWs(readable, ws, proxyToken) {
+  return new Promise((resolve, reject) => {
+    const MAX_BUFFER = 8 * 1024 * 1024;
+    let paused = false;
+
+    const maybeResume = () => {
+      if (!paused) return;
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (ws.bufferedAmount < MAX_BUFFER / 2) {
+        paused = false;
+        readable.resume();
+      }
+    };
+
+    const bufferCheck = setInterval(maybeResume, 200).unref();
+
+    const onData = (chunk) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(chunk, { binary: true }, (err) => {
+        if (err) reject(err);
+      });
+      if (ws.bufferedAmount > MAX_BUFFER && !paused) {
+        paused = true;
+        readable.pause();
+      }
+    };
+
+    const onEnd = () => {
+      clearInterval(bufferCheck);
+      resolve();
+    };
+
+    const onError = (err) => {
+      clearInterval(bufferCheck);
+      reject(err);
+    };
+
+    readable.on('data', onData);
+    readable.on('end', onEnd);
+    readable.on('error', onError);
+
+    ws.on('close', () => {
+      clearInterval(bufferCheck);
+      readable.destroy();
+    });
+  });
+}
+
+async function streamJobViaWebSocket(job) {
+  const proxyToken = job.payload?.streamProxyToken;
+  if (!proxyToken) throw new Error('Missing streamProxyToken in job payload');
+
   const videoId = job.payload?.videoId;
   const url = job.payload?.url || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : null);
+  if (!url) throw new Error('Missing URL in job payload');
 
-  if (!url) {
-    throw new Error('Missing URL in job payload');
-  }
+  const ws = await openWorkerSocket();
+  const contentType = getStreamContentType();
 
-  const token = randomUUID();
-  const expiresAt = Date.now() + STREAM_TTL_MS;
-  const streamPath = `${STREAM_PATH_PREFIX.replace(/\/$/, '')}/${encodeURIComponent(token)}`;
-  const endpoint = `${WORKER_PUBLIC_BASE_URL}${streamPath}`;
+  ws.send(JSON.stringify({
+    event: 'stream_ready',
+    data: { proxyToken, contentType },
+  }));
 
-  streamSessions.set(token, {
-    token,
-    url,
-    videoId: videoId || null,
-    jobId: job.id,
-    expiresAt,
+  await submitResult(job.id, {
+    success: true,
+    result: {
+      streamProxyToken: proxyToken,
+      streamMode: ENABLE_FFMPEG_TRANSCODE ? 'yt-dlp+ffmpeg' : 'yt-dlp',
+      contentType,
+      workerId: WORKER_ID,
+      fetchedAt: new Date().toISOString(),
+    },
   });
 
-  return {
-    streamEndpoint: endpoint,
-    streamToken: token,
-    expiresAt: new Date(expiresAt).toISOString(),
-  };
-}
-
-function sendJson(res, statusCode, payload) {
-  res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify(payload));
-}
-
-function handleStreamRequest(req, res) {
-  if (req.method !== 'GET') {
-    return sendJson(res, 405, { error: 'Method not allowed' });
+  const shouldStart = await waitForStreamStart(ws, proxyToken);
+  if (!shouldStart) {
+    try { ws.close(1000, 'Cancelled'); } catch {}
+    return;
   }
 
-  const parsedUrl = new URL(req.url, `http://${req.headers.host || `localhost:${STREAM_PORT}`}`);
-  const pathPrefix = STREAM_PATH_PREFIX.replace(/\/$/, '');
-  const expectedPrefix = `${pathPrefix}/`;
-  if (!parsedUrl.pathname.startsWith(expectedPrefix)) {
-    return sendJson(res, 404, { error: 'Not found' });
-  }
-
-  const token = decodeURIComponent(parsedUrl.pathname.slice(expectedPrefix.length)).trim();
-  if (!token) {
-    return sendJson(res, 400, { error: 'Missing stream token' });
-  }
-
-  const session = streamSessions.get(token);
-  if (!session) {
-    return sendJson(res, 404, { error: 'Invalid or expired stream token' });
-  }
-
-  if (session.expiresAt <= Date.now()) {
-    streamSessions.delete(token);
-    return sendJson(res, 410, { error: 'Stream token expired' });
-  }
-
-  // One-time stream sessions keep token reuse and race conditions predictable.
-  streamSessions.delete(token);
-
-  const ytDlpArgs = buildYtDlpStreamArgs(session.url);
+  const ytDlpArgs = buildYtDlpStreamArgs(url);
   const ytDlp = spawn(YTDLP_BIN, ytDlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
   const ffmpeg = ENABLE_FFMPEG_TRANSCODE
     ? spawn(FFMPEG_BIN, tokenizeArgs(FFMPEG_ARGS), { stdio: ['pipe', 'pipe', 'pipe'] })
     : null;
-
-  const start = Date.now();
-  let finished = false;
-  let ytDlpStderr = '';
-  let ffmpegStderr = '';
-
-  const endWithError = (statusCode, message, err) => {
-    if (finished) return;
-    finished = true;
-    if (err) {
-      logError(`Stream error token=${token} job=${session.jobId} message=${message}`, err.message || err);
-    } else {
-      logError(`Stream error token=${token} job=${session.jobId} message=${message}`);
-    }
-
-    if (!res.headersSent) {
-      sendJson(res, statusCode, { error: message });
-    } else {
-      res.destroy();
-    }
-  };
-
-  const completeOk = () => {
-    if (finished) return;
-    finished = true;
-    log(`Stream complete token=${token} job=${session.jobId} ms=${Date.now() - start}`);
-  };
 
   const abortChildren = () => {
     ytDlp.kill('SIGTERM');
     if (ffmpeg) ffmpeg.kill('SIGTERM');
   };
 
-  req.on('aborted', abortChildren);
-  req.on('close', () => {
-    if (!res.writableEnded) abortChildren();
-  });
-
-  ytDlp.on('error', (err) => endWithError(500, 'Failed to start yt-dlp process', err));
-  ytDlp.stderr.on('data', (chunk) => {
-    ytDlpStderr += chunk.toString();
-  });
-
-  if (ffmpeg) {
-    ffmpeg.on('error', (err) => endWithError(500, 'Failed to start ffmpeg process', err));
-    ffmpeg.stderr.on('data', (chunk) => {
-      ffmpegStderr += chunk.toString();
-    });
-  }
-
-  res.statusCode = 200;
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Transfer-Encoding', 'chunked');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('Content-Type', ENABLE_FFMPEG_TRANSCODE ? 'audio/opus' : 'application/octet-stream');
-
-  if (ffmpeg) {
-    ytDlp.stdout.pipe(ffmpeg.stdin);
-    ffmpeg.stdout.pipe(res);
-    ffmpeg.stdout.on('end', completeOk);
-  } else {
-    ytDlp.stdout.pipe(res);
-    ytDlp.stdout.on('end', completeOk);
-  }
-
-  ytDlp.on('close', (code) => {
-    if (code !== 0) {
-      return endWithError(502, `yt-dlp failed with code ${code}`);
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) return;
+    let msg;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+    if (msg.event === 'stream_cancel' && msg?.data?.proxyToken === proxyToken) {
+      abortChildren();
+      try { ws.close(1000, 'Cancelled'); } catch {}
     }
-    if (!ffmpeg) return;
-    ffmpeg.stdin.end();
   });
 
-  if (ffmpeg) {
-    ffmpeg.on('close', (code) => {
-      if (code !== 0) {
-        return endWithError(502, `ffmpeg failed with code ${code}`);
-      }
-      completeOk();
-    });
-  }
-
-  res.on('error', (err) => {
-    logError(`HTTP stream response error token=${token} job=${session.jobId}`, err.message);
+  ytDlp.on('error', (err) => {
+    ws.send(JSON.stringify({ event: 'stream_error', data: { proxyToken, message: err.message } }));
     abortChildren();
   });
 
-  res.on('close', () => {
-    log(
-      `Stream closed token=${token} job=${session.jobId} ms=${Date.now() - start} ytStderrBytes=${Buffer.byteLength(ytDlpStderr, 'utf8')} ffmpegStderrBytes=${Buffer.byteLength(ffmpegStderr, 'utf8')}`
-    );
-  });
-}
+  const source = ffmpeg ? ffmpeg.stdout : ytDlp.stdout;
+  if (ffmpeg) ytDlp.stdout.pipe(ffmpeg.stdin);
 
-function startStreamServer() {
-  const server = http.createServer((req, res) => {
-    try {
-      handleStreamRequest(req, res);
-    } catch (err) {
-      logError('Unexpected stream handler error', err.message);
-      if (!res.headersSent) {
-        sendJson(res, 500, { error: 'Internal stream error' });
-      } else {
-        res.destroy();
-      }
-    }
-  });
-
-  server.listen(STREAM_PORT, STREAM_HOST, () => {
-    log(`Stream server listening on ${STREAM_HOST}:${STREAM_PORT} publicBase=${WORKER_PUBLIC_BASE_URL}`);
-  });
-
-  server.on('error', (err) => {
-    logError('Stream server failed', err.message);
-    process.exit(1);
-  });
+  try {
+    await pumpStreamToWs(source, ws, proxyToken);
+    ws.send(JSON.stringify({ event: 'stream_end', data: { proxyToken } }));
+  } catch (err) {
+    ws.send(JSON.stringify({ event: 'stream_error', data: { proxyToken, message: err.message } }));
+  } finally {
+    abortChildren();
+    try { ws.close(1000, 'Done'); } catch {}
+  }
 }
 
 async function heartbeat() {
@@ -355,17 +348,7 @@ async function processJob(job) {
   try {
     const start = Date.now();
     log(`Job ${job.id} start video=${job.payload?.videoId || 'unknown'}`);
-    const streamInfo = createStreamSession(job);
-    await submitResult(job.id, {
-      success: true,
-      result: {
-        ...streamInfo,
-        streamMode: ENABLE_FFMPEG_TRANSCODE ? 'yt-dlp+ffmpeg' : 'yt-dlp',
-        contentType: ENABLE_FFMPEG_TRANSCODE ? 'audio/opus' : 'application/octet-stream',
-        workerId: WORKER_ID,
-        fetchedAt: new Date().toISOString(),
-      },
-    });
+    await streamJobViaWebSocket(job);
     log(`Job ${job.id} complete in ${Date.now() - start}ms`);
   } catch (err) {
     logError(`Job ${job.id} failed`, err.message);
@@ -378,13 +361,8 @@ async function processJob(job) {
 
 async function start() {
   log(
-    `Starting ${WORKER_ID}, backend=${BACKEND_URL}, browser=${COOKIES_BROWSER}, capabilities=${getCapabilities().join(',')}, streamBase=${WORKER_PUBLIC_BASE_URL}`
+    `Starting ${WORKER_ID}, backend=${BACKEND_URL}, browser=${COOKIES_BROWSER}, capabilities=${getCapabilities().join(',')}, workerWs=${WORKER_WS_URL}`
   );
-  startStreamServer();
-
-  setInterval(() => {
-    cleanupExpiredSessions();
-  }, Math.max(15000, Math.floor(STREAM_TTL_MS / 2))).unref();
 
   setInterval(async () => {
     try {

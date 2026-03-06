@@ -11,6 +11,7 @@ const { initRedis, redis } = require('./config/redis');
 const { runMigrations } = require('./db/migrate');
 const { recoverStaleRooms, startRoomJanitor } = require('./modules/rooms/service');
 const { setupWebSocket } = require('./modules/websocket/handler');
+const { setupWorkerStream } = require('./modules/media/streamProxy');
 
 const authRoutes = require('./modules/auth/routes');
 const roomRoutes = require('./modules/rooms/routes');
@@ -67,6 +68,9 @@ app.use((err, req, res, next) => {
 // ─── WEBSOCKET ────────────────────────────────────────────────────────────────
 const wss = new WebSocketServer({ server, path: '/ws' });
 setupWebSocket(wss);
+
+const workerWss = new WebSocketServer({ server, path: '/ws-worker' });
+setupWorkerStream(workerWss);
 
 // ─── STARTUP ──────────────────────────────────────────────────────────────────
 async function start() {

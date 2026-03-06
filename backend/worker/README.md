@@ -20,6 +20,7 @@ Optional:
 - `WORKER_POLL_INTERVAL_MS`
 - `WORKER_HEARTBEAT_INTERVAL_MS`
 - `YTDLP_BIN` (default `yt-dlp`)
+- `WORKER_WS_URL` (override worker WS endpoint; defaults to `${BACKEND_URL}/ws-worker`)
 
 ## Run
 
@@ -39,3 +40,7 @@ You can append additional capabilities with `WORKER_CAPABILITIES` as a comma-sep
 
 The backend can then route `/api/media/resolve/:videoId?cookieMethod=youtube_firefox` to only workers
 that advertise that capability.
+
+## Streaming
+
+Workers now push audio streams to the backend over WebSocket (`/ws-worker`) so clients never connect directly to the worker IP.
