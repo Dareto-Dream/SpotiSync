@@ -123,7 +123,11 @@ function setupWebSocket(wss) {
     ws.on('message', async (raw) => {
       let msg;
       try {
-        msg = JSON.parse(raw);
+        let payload = raw;
+        if (Buffer.isBuffer(payload)) payload = payload.toString('utf8');
+        else if (payload instanceof ArrayBuffer) payload = Buffer.from(payload).toString('utf8');
+        else if (Array.isArray(payload)) payload = Buffer.concat(payload).toString('utf8');
+        msg = JSON.parse(payload);
       } catch {
         return sendTo(ws, S2C.ERROR, { code: 'INVALID_MSG', message: 'Invalid JSON' });
       }
