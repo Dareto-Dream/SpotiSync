@@ -21,5 +21,6 @@ npm start
 - `/skip`: Vote to skip the current track.
 
 ## Notes
-- Audio is pulled via `/api/media/resolve/:videoId`. If the relay is unavailable (no active workers), the bot reports an error in Discord and does not play fallback audio.
+- Audio is pulled via `/api/media/resolve/:videoId` and uses the worker stream endpoint. If no worker is available, the bot reports an error in Discord and does not play fallback audio.
+- Set `BOT_COOKIE_METHOD` if you want to target a specific worker capability (for example `youtube_firefox`).
 - The bot maintains separate state per Discord server (guild), so multiple servers can use it concurrently.

@@ -20,6 +20,7 @@ const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || '';
 
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:4000').replace(/\/$/, '');
 const BACKEND_WS_URL = process.env.BACKEND_WS_URL || toWsUrl(BACKEND_URL);
+const BOT_COOKIE_METHOD = process.env.BOT_COOKIE_METHOD || '';
 
 const BOT_BACKEND_USERNAME = process.env.BOT_BACKEND_USERNAME || '';
 const BOT_BACKEND_PASSWORD = process.env.BOT_BACKEND_PASSWORD || '';
@@ -224,20 +225,39 @@ function wsSend(state, event, data) {
   return true;
 }
 
-async function resolveAudioUrl(videoId) {
-  const res = await apiFetch(`/api/media/resolve/${encodeURIComponent(videoId)}`, { method: 'GET' });
+async function resolveAudioSource(videoId) {
+  const cookieParam = BOT_COOKIE_METHOD ? `?cookieMethod=${encodeURIComponent(BOT_COOKIE_METHOD)}` : '';
+  const res = await apiFetch(`/api/media/resolve/${encodeURIComponent(videoId)}${cookieParam}`, { method: 'GET' });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Relay error (${res.status}): ${text}`);
   }
   const data = await res.json();
-  if (!data || data.source !== 'worker') {
-    throw new Error('Relay unavailable (no active worker or fallback in use)');
+  if (!data) {
+    throw new Error('Relay unavailable (empty response)');
   }
-  if (!data.audioUrl) {
-    throw new Error('Relay did not return an audio URL');
+
+  if (data.source === 'worker') {
+    if (!data.streamEndpoint) {
+      throw new Error('Relay did not return a stream endpoint');
+    }
+    return {
+      url: data.streamEndpoint,
+      source: 'worker',
+      contentType: data.contentType || null,
+      streamMode: data.streamMode || null,
+    };
   }
-  return data.audioUrl;
+
+  if (data.audioUrl) {
+    return { url: data.audioUrl, source: data.source || 'legacy', contentType: data.contentType || null };
+  }
+
+  if (data.streamUrl) {
+    throw new Error(`Relay fell back to legacy source (${data.reason || 'no worker available'}); bot cannot stream legacy URLs`);
+  }
+
+  throw new Error('Relay did not return a usable stream URL');
 }
 
 async function playTrack(state, track, positionMs) {
@@ -247,8 +267,8 @@ async function playTrack(state, track, positionMs) {
   const startSeconds = Math.max(0, Math.floor((positionMs || 0) / 1000));
 
   try {
-    const audioUrl = await resolveAudioUrl(track.videoId);
-    const res = await fetch(audioUrl);
+    const source = await resolveAudioSource(track.videoId);
+    const res = await fetch(source.url);
     if (!res.ok || !res.body) {
       throw new Error(`Audio fetch failed (${res.status})`);
     }
