@@ -48,10 +48,20 @@ router.get('/resolve/:videoId', requireAuth, async (req, res) => {
   const outcome = await coordinator.runJobWithFailover(job);
 
   if (outcome.mode === 'worker') {
+    const streamEndpoint = outcome.result?.streamEndpoint || null;
+    const streamToken = outcome.result?.streamToken || null;
+    const expiresAt = outcome.result?.expiresAt || null;
+
     return res.json({
       source: 'worker',
       videoId,
-      ...outcome.result,
+      streamEndpoint,
+      streamToken,
+      expiresAt,
+      contentType: outcome.result?.contentType || null,
+      streamMode: outcome.result?.streamMode || null,
+      workerId: outcome.result?.workerId || null,
+      fetchedAt: outcome.result?.fetchedAt || null,
       attempts: outcome.attempts,
     });
   }
