@@ -86,7 +86,7 @@ function runYtDlp(url) {
     '--no-warnings',
     '--no-playlist',
     '-f',
-    'bestaudio[ext=m4a]/bestaudio/best',
+    'ba/b',
     '-g',
   ];
 
@@ -123,10 +123,12 @@ function runYtDlp(url) {
         return reject(new Error(`yt-dlp exited with code ${code}: ${stderr.trim() || 'unknown error'}`));
       }
 
-      const audioUrl = stdout
+      const lines = stdout
         .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)[0];
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      const audioUrl = lines[lines.length - 1];
 
       if (!audioUrl) {
         logError(`yt-dlp returned no audio URL stderrBytes=${stderrBytes}`);
