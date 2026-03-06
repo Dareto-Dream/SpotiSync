@@ -238,11 +238,12 @@ async function resolveAudioSource(videoId) {
   }
 
   if (data.source === 'worker') {
-    if (!data.streamEndpoint) {
-      throw new Error('Relay did not return a stream endpoint');
+    const streamUrl = data.streamProxyUrl || data.streamEndpoint || null;
+    if (!streamUrl) {
+      throw new Error('Relay did not return a stream URL');
     }
     return {
-      url: data.streamEndpoint,
+      url: streamUrl,
       source: 'worker',
       contentType: data.contentType || null,
       streamMode: data.streamMode || null,
