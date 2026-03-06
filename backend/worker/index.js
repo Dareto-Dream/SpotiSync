@@ -12,6 +12,7 @@ const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 const COOKIES_BROWSER = process.env.WORKER_COOKIES_BROWSER || 'chrome';
 // Optional profile path for chromium-based browsers.
 const COOKIES_PROFILE = process.env.WORKER_COOKIES_PROFILE || '';
+const WORKER_CAPABILITIES = process.env.WORKER_CAPABILITIES || '';
 
 if (!WORKER_TOKEN) {
   console.error('[Cookie Worker] Missing WORKER_TOKEN env var. Exiting.');
@@ -34,6 +35,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getCapabilities() {
+  const parsed = WORKER_CAPABILITIES
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const defaults = [`youtube_${String(COOKIES_BROWSER).trim().toLowerCase()}`];
+  return [...new Set([...defaults, ...parsed])];
+}
+
 async function api(path, options = {}) {
   const url = `${BACKEND_URL}${path}`;
   const headers = {
@@ -52,6 +62,7 @@ async function api(path, options = {}) {
 }
 
 async function heartbeat() {
+  const capabilities = getCapabilities();
   const response = await api('/api/media/worker/heartbeat', {
     method: 'POST',
     body: JSON.stringify({
@@ -59,6 +70,7 @@ async function heartbeat() {
       meta: {
         host: process.env.COMPUTERNAME || null,
         browser: COOKIES_BROWSER,
+        capabilities,
       },
     }),
   });
@@ -195,7 +207,7 @@ async function processJob(job) {
 }
 
 async function start() {
-  log(`Starting ${WORKER_ID}, backend=${BACKEND_URL}, browser=${COOKIES_BROWSER}`);
+  log(`Starting ${WORKER_ID}, backend=${BACKEND_URL}, browser=${COOKIES_BROWSER}, capabilities=${getCapabilities().join(',')}`);
 
   setInterval(async () => {
     try {

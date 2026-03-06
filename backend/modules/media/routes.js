@@ -29,18 +29,21 @@ function toLegacyResponse(videoId, reason, attempts = []) {
 
 router.get('/resolve/:videoId', requireAuth, async (req, res) => {
   const { videoId } = req.params;
+  const requiredCookieMethod = String(req.query.cookieMethod || req.query.cookie_method || '').trim();
+  const requiredCapability = coordinator.normalizeRequiredCapability(requiredCookieMethod);
 
   if (!videoId || videoId.length < 6) {
     return res.status(400).json({ error: 'Invalid videoId' });
   }
 
-  const activeWorkers = coordinator.getActiveWorkers();
+  const activeWorkers = coordinator.getActiveWorkers(requiredCapability);
   const job = coordinator.createJob({
     type: 'extract_audio',
     videoId,
     url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
     requestedBy: req.user.sub,
-  }, activeWorkers);
+    requiredCookieMethod: requiredCapability,
+  }, activeWorkers, { requiredCapability });
 
   const outcome = await coordinator.runJobWithFailover(job);
 
@@ -61,7 +64,7 @@ router.get('/resolve/:videoId', requireAuth, async (req, res) => {
 router.post('/worker/heartbeat', requireWorkerAuth, (req, res) => {
   const { workerId, meta } = req.body || {};
   if (!workerId) return res.status(400).json({ error: 'workerId is required' });
-  coordinator.touchWorker(workerId, meta || {});
+  coordinator.touchWorker(workerId, meta);
   res.json({ ok: true, activeWorkers: coordinator.getActiveWorkers().length });
 });
 

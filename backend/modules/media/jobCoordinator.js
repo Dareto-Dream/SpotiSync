@@ -8,27 +8,68 @@ const JOB_TIMEOUT_MS = parseInt(process.env.MEDIA_WORKER_JOB_TIMEOUT_MS || '1500
 const WORKER_TTL_MS = parseInt(process.env.MEDIA_WORKER_TTL_MS || '20000', 10);
 const MAX_JOB_AGE_MS = parseInt(process.env.MEDIA_MAX_JOB_AGE_MS || String(5 * 60 * 1000), 10);
 
-function touchWorker(workerId, meta = {}) {
+function normalizeCapability(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized.length ? normalized : null;
+}
+
+function normalizeCapabilities(value) {
+  if (!value) return [];
+  const list = Array.isArray(value)
+    ? value
+    : String(value)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+  return [...new Set(list.map(normalizeCapability).filter(Boolean))];
+}
+
+function normalizeWorkerMeta(meta = {}) {
+  const normalized = { ...meta };
+  normalized.capabilities = normalizeCapabilities(meta.capabilities);
+  return normalized;
+}
+
+function workerHasCapability(worker, capability) {
+  if (!capability) return true;
+  if (!worker) return false;
+  const caps = normalizeCapabilities(worker.meta?.capabilities);
+  return caps.includes(capability);
+}
+
+function normalizeRequiredCapability(value) {
+  const normalized = normalizeCapability(value);
+  if (!normalized) return null;
+  if (normalized.startsWith('youtube_')) return normalized;
+  return `youtube_${normalized}`;
+}
+
+function touchWorker(workerId, meta = null) {
+  const previous = workers.get(workerId);
+  const nextMeta = meta ? normalizeWorkerMeta(meta) : (previous?.meta || {});
   workers.set(workerId, {
     workerId,
-    meta,
+    meta: nextMeta,
     lastSeenAt: Date.now(),
   });
 }
 
-function getActiveWorkers() {
+function getActiveWorkers(requiredCapability = null) {
   const now = Date.now();
   const active = [];
   for (const [workerId, worker] of workers) {
-    if (now - worker.lastSeenAt <= WORKER_TTL_MS) {
+    if (now - worker.lastSeenAt <= WORKER_TTL_MS && workerHasCapability(worker, requiredCapability)) {
       active.push(workerId);
     }
   }
   return active;
 }
 
-function createJob(payload, preferredWorkers = []) {
-  const activeWorkers = getActiveWorkers();
+function createJob(payload, preferredWorkers = [], options = {}) {
+  const requiredCapability = normalizeRequiredCapability(options.requiredCapability);
+  const activeWorkers = getActiveWorkers(requiredCapability);
   const workersToTry = preferredWorkers.length > 0
     ? preferredWorkers.filter((id) => activeWorkers.includes(id))
     : activeWorkers;
@@ -40,6 +81,7 @@ function createJob(payload, preferredWorkers = []) {
     status: 'pending', // pending | assigned | succeeded | failed | fallback
     attempts: [],
     workerOrder: [...workersToTry],
+    requiredCapability,
     assignedWorkerId: null,
     assignedAt: null,
     createdAt: Date.now(),
@@ -59,10 +101,12 @@ function getJob(id) {
 function getNextJobForWorker(workerId) {
   touchWorker(workerId);
   const now = Date.now();
+  const worker = workers.get(workerId);
 
   for (const job of jobs.values()) {
     if (job.status !== 'pending') continue;
     if (!job.workerOrder.includes(workerId)) continue;
+    if (!workerHasCapability(worker, job.requiredCapability)) continue;
 
     const alreadyTried = job.attempts.some((a) => a.workerId === workerId);
     if (alreadyTried) continue;
@@ -261,6 +305,7 @@ setInterval(cleanup, 30000).unref();
 module.exports = {
   touchWorker,
   getActiveWorkers,
+  normalizeRequiredCapability,
   createJob,
   getJob,
   getNextJobForWorker,
