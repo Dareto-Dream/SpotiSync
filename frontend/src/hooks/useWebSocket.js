@@ -41,6 +41,9 @@ export function useWebSocket({ onMessage, onOpen, onClose, onAuthFailure }) {
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
+        if (msg?.event === 'auth_required' && tokenRef.current) {
+          ws.send(JSON.stringify({ event: 'auth', data: { token: tokenRef.current } }));
+        }
         listenersRef.current.onMessage?.(msg);
       } catch (err) {
         console.error('[WS] Parse error:', err);
