@@ -7,7 +7,7 @@ const { C2S, S2C } = require('./events');
 
 /**
  * In-memory map of active WebSocket connections per room.
- * roomConnections: Map<roomId, Map<userId, WebSocket>>
+ * roomConnections: Map<roomId, Map<userId, Set<WebSocket>>>
  */
 const roomConnections = new Map();
 // Per-room autoplay feedback state: { trackId, likes:Set<userId>, dislikes:Set<userId> }
@@ -17,13 +17,48 @@ function getRoomClients(roomId) {
   return roomConnections.get(roomId) || new Map();
 }
 
+function addRoomConnection(roomId, userId, ws) {
+  if (!roomConnections.has(roomId)) roomConnections.set(roomId, new Map());
+  const users = roomConnections.get(roomId);
+  if (!users.has(userId)) users.set(userId, new Set());
+  const userSockets = users.get(userId);
+  const wasFirstConnection = userSockets.size === 0;
+  userSockets.add(ws);
+  return wasFirstConnection;
+}
+
+function removeRoomConnection(roomId, userId, ws) {
+  const users = roomConnections.get(roomId);
+  if (!users) return { removed: false, userStillPresent: false, roomEmpty: true };
+
+  const userSockets = users.get(userId);
+  if (!userSockets) return { removed: false, userStillPresent: false, roomEmpty: users.size === 0 };
+
+  const removed = userSockets.delete(ws);
+  if (userSockets.size === 0) {
+    users.delete(userId);
+  }
+
+  if (users.size === 0) {
+    roomConnections.delete(roomId);
+  }
+
+  return {
+    removed,
+    userStillPresent: users.has(userId),
+    roomEmpty: !roomConnections.has(roomId),
+  };
+}
+
 function broadcast(roomId, event, data, excludeUserId = null) {
   const clients = getRoomClients(roomId);
   const message = JSON.stringify({ event, data, ts: Date.now() });
-  for (const [uid, ws] of clients) {
+  for (const [uid, sockets] of clients) {
     if (uid === excludeUserId) continue;
-    if (ws.readyState === 1) { // OPEN
-      ws.send(message);
+    for (const ws of sockets) {
+      if (ws.readyState === 1) { // OPEN
+        ws.send(message);
+      }
     }
   }
 }
@@ -265,14 +300,17 @@ async function handleJoinRoom(ws, { code }) {
   const room = await roomService.getRoomByCode(code);
   if (!room) return sendTo(ws, S2C.ERROR, { code: 'ROOM_NOT_FOUND', message: 'Room not found or inactive' });
 
+  if (ws._roomId && ws._roomId !== room.id) {
+    await doLeave(ws, false);
+  }
+
   const userId = ws._userId;
 
   // Register in DB
   await roomService.joinRoom(room.id, userId);
 
   // Register in memory
-  if (!roomConnections.has(room.id)) roomConnections.set(room.id, new Map());
-  roomConnections.get(room.id).set(userId, ws);
+  const isFirstConnectionForUser = addRoomConnection(room.id, userId, ws);
 
   ws._roomId = room.id;
   ws._isHost = room.host_id === userId;
@@ -291,11 +329,13 @@ async function handleJoinRoom(ws, { code }) {
   ensureFeedbackTrack(room.id, playbackState?.currentItem?.videoId || null);
   emitFeedback(room.id, ws);
 
-  // Notify others
-  broadcast(room.id, S2C.MEMBER_JOINED, {
-    user: { id: userId, username: ws._username },
-    memberCount: getActiveMemberCount(room.id),
-  }, userId);
+  // Notify others only when this is the user's first live connection for the room
+  if (isFirstConnectionForUser) {
+    broadcast(room.id, S2C.MEMBER_JOINED, {
+      user: { id: userId, username: ws._username },
+      memberCount: getActiveMemberCount(room.id),
+    }, userId);
+  }
 
   await emitAutoplaySuggestions(room.id, room.settings);
 }
@@ -315,15 +355,15 @@ async function doLeave(ws, isDrop) {
   const userId = ws._userId;
   const isHost = ws._isHost;
 
-  // Remove from memory
-  const clients = getRoomClients(roomId);
-  clients.delete(userId);
-  if (clients.size === 0) roomConnections.delete(roomId);
+  // Remove this specific socket from memory (user may still have other active sockets)
+  const { userStillPresent } = removeRoomConnection(roomId, userId, ws);
 
-  await roomService.leaveRoom(roomId, userId);
+  if (!userStillPresent) {
+    await roomService.leaveRoom(roomId, userId);
+  }
   ws._roomId = null;
 
-  if (isHost) {
+  if (isHost && !userStillPresent) {
     // Host left -> close room
     await roomService.closeRoom(roomId);
     playbackService.evictCache(roomId);
@@ -333,7 +373,7 @@ async function doLeave(ws, isDrop) {
     });
     roomConnections.delete(roomId);
     feedbackState.delete(roomId);
-  } else {
+  } else if (!userStillPresent) {
     const fb = feedbackState.get(roomId);
     if (fb) {
       fb.likes.delete(userId);
@@ -623,6 +663,8 @@ async function handleQueueReorder(ws, { fromIndex, toIndex }) {
 async function handleQueuePlayNow(ws, { index }) {
   if (!ws._isHost) return sendTo(ws, S2C.ERROR, { code: 'FORBIDDEN', message: 'Host only' });
   const roomId = ws._roomId;
+  const room = await roomService.getRoomById(roomId);
+  if (!room) return;
   const state = await playbackService.getState(roomId);
   if (!state || !state.queue[index]) return;
 
