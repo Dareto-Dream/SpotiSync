@@ -13,6 +13,7 @@ const prism = require('prism-media');
 const ffmpegPath = require('ffmpeg-static');
 const WebSocket = require('ws');
 const fetch = global.fetch || require('node-fetch');
+const { Readable } = require('node:stream');
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -287,12 +288,16 @@ async function playTrack(state, track, positionMs) {
       executable: ffmpegPath,
     });
 
-    res.body.on('error', (err) => {
+    const inputStream = typeof res.body.on === 'function'
+      ? res.body
+      : Readable.fromWeb(res.body);
+
+    inputStream.on('error', (err) => {
       console.error('[Audio] Input stream error:', err.message);
     });
 
     const player = ensurePlayer(state);
-    const resource = createAudioResource(res.body.pipe(ffmpeg), { inputType: StreamType.Raw });
+    const resource = createAudioResource(inputStream.pipe(ffmpeg), { inputType: StreamType.Raw });
     player.play(resource);
 
     state.lastTrackId = track.videoId;
