@@ -14,7 +14,9 @@ const {
 const prism = require('prism-media');
 const ffmpegPath = require('ffmpeg-static');
 const WebSocket = require('ws');
-const fetch = global.fetch || require('node-fetch');
+const fetch = global.fetch
+  ? global.fetch.bind(global)
+  : (...args) => import('node-fetch').then((mod) => mod.default(...args));
 const { Readable } = require('node:stream');
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -190,6 +192,19 @@ function connectVoice(state, channel) {
   state.voiceConnection = connection;
   console.log(`[Voice] Joining channel ${channel.name} (${channel.id}) in guild ${channel.guild.id}`);
 
+  connection.on('stateChange', (oldState, newState) => {
+    console.log(`[Voice] State change: ${oldState.status} -> ${newState.status}`);
+    const net = newState.networking;
+    if (net && net.state) {
+      const code = net.state.code;
+      const desc = net.state.description || '';
+      console.log(`[Voice] Networking state: code=${code}${desc ? ` desc=${desc}` : ''}`);
+    }
+    if (newState.ping) {
+      console.log(`[Voice] Ping: ws=${newState.ping.ws ?? 'n/a'} udp=${newState.ping.udp ?? 'n/a'}`);
+    }
+  });
+
   connection.on(VoiceConnectionStatus.Signalling, () => {
     console.log('[Voice] Connection status: Signalling');
   });
@@ -220,7 +235,12 @@ async function waitForVoiceReady(state, timeoutMs = 15000) {
     await entersState(state.voiceConnection, VoiceConnectionStatus.Ready, timeoutMs);
     return true;
   } catch {
-    console.warn(`[Voice] Connection not ready after ${timeoutMs}ms`);
+    const vc = state.voiceConnection;
+    const status = vc?.state?.status || 'unknown';
+    const net = vc?.state?.networking?.state || null;
+    const netCode = net?.code ?? 'n/a';
+    const netDesc = net?.description || '';
+    console.warn(`[Voice] Connection not ready after ${timeoutMs}ms (status=${status} netCode=${netCode}${netDesc ? ` desc=${netDesc}` : ''})`);
     return false;
   }
 }
@@ -508,7 +528,7 @@ async function registerCommands() {
   }
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`[Bot] Logged in as ${client.user.tag}`);
   try {
     await registerCommands();
