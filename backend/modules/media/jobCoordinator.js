@@ -7,6 +7,7 @@ const workers = new Map(); // workerId -> { lastSeenAt, meta }
 const JOB_TIMEOUT_MS = parseInt(process.env.MEDIA_WORKER_JOB_TIMEOUT_MS || '15000', 10);
 const WORKER_TTL_MS = parseInt(process.env.MEDIA_WORKER_TTL_MS || '20000', 10);
 const MAX_JOB_AGE_MS = parseInt(process.env.MEDIA_MAX_JOB_AGE_MS || String(5 * 60 * 1000), 10);
+const WORKER_CLAIM_WAIT_MS = parseInt(process.env.MEDIA_WORKER_CLAIM_WAIT_MS || '12000', 10);
 
 function normalizeCapability(value) {
   if (value === null || value === undefined) return null;
@@ -256,8 +257,10 @@ async function runJobWithFailover(job) {
         };
       }
 
-      // Wait briefly for one of the remaining workers to poll and claim the job.
-      const signaled = await waitForSignal(refreshed.id, 5000);
+      // Wait for one of the remaining workers to poll and claim the job.
+      // The default is intentionally longer than the worker poll interval to avoid
+      // false-negative synthetic failures on temporarily slow networks.
+      const signaled = await waitForSignal(refreshed.id, WORKER_CLAIM_WAIT_MS);
       if (!signaled) {
         // If no worker claimed the job during this window, synthesize failure for one worker slot
         // so coordinator can continue cycling through worker order deterministically.

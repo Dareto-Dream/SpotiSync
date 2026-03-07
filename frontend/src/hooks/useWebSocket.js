@@ -1,6 +1,34 @@
 import { useRef, useEffect, useCallback } from 'react';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:4000';
+const WS_URL = import.meta.env.VITE_WS_URL || import.meta.env.VITE_API_URL || 'ws://localhost:4000';
+
+function resolveWebSocketUrl() {
+  const raw = String(WS_URL || '').trim();
+  if (!raw) return 'ws://localhost:4000/ws';
+
+  const ensureWsPath = (base) => (base.endsWith('/ws') ? base : `${base}/ws`);
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'http:') url.protocol = 'ws:';
+    if (url.protocol === 'https:') url.protocol = 'wss:';
+    if (!['ws:', 'wss:'].includes(url.protocol)) {
+      return 'ws://localhost:4000/ws';
+    }
+
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    if (!url.pathname || url.pathname === '/') {
+      url.pathname = '/ws';
+    } else if (!url.pathname.endsWith('/ws')) {
+      url.pathname = `${url.pathname}/ws`;
+    }
+
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    const normalized = raw.replace(/\/+$/, '').replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+    return ensureWsPath(normalized || 'ws://localhost:4000');
+  }
+}
 
 export function useWebSocket({ onMessage, onOpen, onClose, onAuthFailure }) {
   const wsRef = useRef(null);
@@ -28,11 +56,12 @@ export function useWebSocket({ onMessage, onOpen, onClose, onAuthFailure }) {
     }
 
     shouldReconnectRef.current = true;
-    const ws = new WebSocket(`${WS_URL}/ws`);
+    const wsUrl = resolveWebSocketUrl();
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('[WS] Connected');
+      console.log('[WS] Connected:', wsUrl);
       reconnectAttemptsRef.current = 0;
       ws.send(JSON.stringify({ event: 'auth', data: { token: tokenRef.current } }));
       listenersRef.current.onOpen?.();

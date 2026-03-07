@@ -66,11 +66,33 @@ app.use((err, req, res, next) => {
 });
 
 // ─── WEBSOCKET ────────────────────────────────────────────────────────────────
-const wss = new WebSocketServer({ server, path: '/ws' });
+// Use explicit upgrade routing to avoid path-handling edge cases with multiple
+// WebSocket servers attached to the same HTTP server.
+const wss = new WebSocketServer({ noServer: true });
 setupWebSocket(wss);
 
-const workerWss = new WebSocketServer({ server, path: '/ws-worker' });
+const workerWss = new WebSocketServer({ noServer: true });
 setupWorkerStream(workerWss);
+
+server.on('upgrade', (req, socket, head) => {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  if (requestUrl.pathname === '/ws') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === '/ws-worker') {
+    workerWss.handleUpgrade(req, socket, head, (ws) => {
+      workerWss.emit('connection', ws, req);
+    });
+    return;
+  }
+
+  socket.destroy();
+});
 
 // ─── STARTUP ──────────────────────────────────────────────────────────────────
 async function start() {
