@@ -9,6 +9,7 @@ const {
   AudioPlayerStatus,
   NoSubscriberBehavior,
   VoiceConnectionStatus,
+  entersState,
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 const ffmpegPath = require('ffmpeg-static');
@@ -213,6 +214,17 @@ function connectVoice(state, channel) {
   return connection;
 }
 
+async function waitForVoiceReady(state, timeoutMs = 15000) {
+  if (!state.voiceConnection) return false;
+  try {
+    await entersState(state.voiceConnection, VoiceConnectionStatus.Ready, timeoutMs);
+    return true;
+  } catch {
+    console.warn(`[Voice] Connection not ready after ${timeoutMs}ms`);
+    return false;
+  }
+}
+
 async function connectRoom(state, roomCode) {
   if (state.ws) {
     try { state.ws.close(1000, 'Reconnecting'); } catch {}
@@ -302,6 +314,12 @@ async function playTrack(state, track, positionMs) {
   const startSeconds = Math.max(0, Math.floor((positionMs || 0) / 1000));
 
   try {
+    const ready = await waitForVoiceReady(state);
+    if (!ready) {
+      console.warn('[Audio] Skipping play: voice not ready');
+      return;
+    }
+
     const source = await resolveAudioSource(track.videoId);
     console.log(`[Audio] Resolved source: ${source.source} ${source.url}`);
     const res = await fetch(source.url);
