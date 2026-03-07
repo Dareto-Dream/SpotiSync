@@ -8,6 +8,7 @@ const {
   StreamType,
   AudioPlayerStatus,
   NoSubscriberBehavior,
+  VoiceConnectionStatus,
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 const ffmpegPath = require('ffmpeg-static');
@@ -149,7 +150,18 @@ function ensurePlayer(state) {
     behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
   });
 
-  player.on(AudioPlayerStatus.Idle, () => {});
+  player.on(AudioPlayerStatus.Idle, () => {
+    console.log('[Audio] Player status: Idle');
+  });
+  player.on(AudioPlayerStatus.Playing, () => {
+    console.log('[Audio] Player status: Playing');
+  });
+  player.on(AudioPlayerStatus.Paused, () => {
+    console.log('[Audio] Player status: Paused');
+  });
+  player.on(AudioPlayerStatus.Buffering, () => {
+    console.log('[Audio] Player status: Buffering');
+  });
   player.on('error', (err) => {
     console.error('[Audio] Player error:', err.message);
     sendChannelMessage(state, `Audio error: ${err.message}`);
@@ -175,6 +187,27 @@ function connectVoice(state, channel) {
   });
 
   state.voiceConnection = connection;
+  console.log(`[Voice] Joining channel ${channel.name} (${channel.id}) in guild ${channel.guild.id}`);
+
+  connection.on(VoiceConnectionStatus.Signalling, () => {
+    console.log('[Voice] Connection status: Signalling');
+  });
+  connection.on(VoiceConnectionStatus.Connecting, () => {
+    console.log('[Voice] Connection status: Connecting');
+  });
+  connection.on(VoiceConnectionStatus.Ready, () => {
+    console.log('[Voice] Connection status: Ready');
+  });
+  connection.on(VoiceConnectionStatus.Disconnected, () => {
+    console.log('[Voice] Connection status: Disconnected');
+  });
+  connection.on(VoiceConnectionStatus.Destroyed, () => {
+    console.log('[Voice] Connection status: Destroyed');
+  });
+  connection.on('error', (err) => {
+    console.error('[Voice] Connection error:', err.message);
+  });
+
   const player = ensurePlayer(state);
   connection.subscribe(player);
   return connection;
@@ -270,10 +303,12 @@ async function playTrack(state, track, positionMs) {
 
   try {
     const source = await resolveAudioSource(track.videoId);
+    console.log(`[Audio] Resolved source: ${source.source} ${source.url}`);
     const res = await fetch(source.url);
     if (!res.ok || !res.body) {
       throw new Error(`Audio fetch failed (${res.status})`);
     }
+    console.log(`[Audio] Fetch ok. status=${res.status} content-type=${res.headers.get('content-type') || 'unknown'}`);
 
     const ffmpeg = new prism.FFmpeg({
       args: [
@@ -288,12 +323,23 @@ async function playTrack(state, track, positionMs) {
       executable: ffmpegPath,
     });
 
+    ffmpeg.on('error', (err) => {
+      console.error('[Audio] FFmpeg error:', err.message);
+    });
+    ffmpeg.on('close', (code, signal) => {
+      console.log(`[Audio] FFmpeg closed: code=${code} signal=${signal || 'none'}`);
+    });
+
     const inputStream = typeof res.body.on === 'function'
       ? res.body
       : Readable.fromWeb(res.body);
 
+    console.log(`[Audio] Input stream type: ${typeof res.body.on === 'function' ? 'node' : 'web'}`);
     inputStream.on('error', (err) => {
       console.error('[Audio] Input stream error:', err.message);
+    });
+    inputStream.on('close', () => {
+      console.log('[Audio] Input stream closed');
     });
 
     const player = ensurePlayer(state);
