@@ -45,6 +45,76 @@ async function getTrack(videoId) {
   }
 }
 
+function extractPlaylistId(input) {
+  if (!input) return null;
+  const trimmed = String(input).trim();
+  if (!trimmed) return null;
+
+  const listParam = trimmed.match(/[?&]list=([A-Za-z0-9_-]+)/);
+  if (listParam) return listParam[1];
+
+  try {
+    const url = new URL(trimmed);
+    const list = url.searchParams.get('list');
+    if (list) return list;
+    const parts = url.pathname.split('/').filter(Boolean);
+    const candidate = parts[parts.length - 1];
+    if (candidate && looksLikePlaylistId(candidate)) return candidate;
+  } catch {
+    // Not a URL; fall through to direct ID check
+  }
+
+  if (looksLikePlaylistId(trimmed)) return trimmed;
+  return null;
+}
+
+function looksLikePlaylistId(value) {
+  if (!value || value.length < 10) return false;
+  const allowed = /^[A-Za-z0-9_-]+$/.test(value);
+  if (!allowed) return false;
+  return (
+    value.startsWith('PL')
+    || value.startsWith('VL')
+    || value.startsWith('UU')
+    || value.startsWith('LL')
+    || value.startsWith('OL')
+    || value.startsWith('RD')
+  );
+}
+
+async function getPlaylistDetails(input) {
+  const playlistId = extractPlaylistId(input);
+  if (!playlistId) {
+    const err = new Error('Invalid playlist URL or ID');
+    err.status = 400;
+    throw err;
+  }
+
+  try {
+    const client = await getClient();
+    const [playlist, tracks] = await Promise.all([
+      client.getPlaylist(playlistId),
+      client.getPlaylistVideos(playlistId),
+    ]);
+    const meta = playlist || {};
+    return {
+      playlist: {
+        id: meta.playlistId || playlistId,
+        title: meta.title || meta.name || 'Playlist',
+        author: meta.author?.name || meta.author || meta.owner || null,
+        itemCount: meta.totalTracks || meta.trackCount || meta.itemCount || null,
+        thumbnailUrl: pickThumbnail(meta.thumbnails || meta.thumbnail),
+      },
+      tracks: Array.isArray(tracks) ? tracks.map(normalizeTrack).filter(t => t?.videoId) : [],
+    };
+  } catch (err) {
+    console.error('[Search] getPlaylist error:', err.message);
+    const out = new Error('Playlist load failed: ' + err.message);
+    out.status = 503;
+    throw out;
+  }
+}
+
 function normalizeTrack(raw) {
   return {
     videoId: raw.videoId || raw.id,
@@ -83,4 +153,4 @@ function upscaleYoutube(url) {
   return url;
 }
 
-module.exports = { search, getTrack, normalizeTrack };
+module.exports = { search, getTrack, getPlaylistDetails, normalizeTrack };

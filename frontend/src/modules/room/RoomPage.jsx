@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info, PlayCircle, Palette } from 'lucide-react';
+import { Music4, Search as SearchIcon, ListMusic, Users, Copy, Settings, DoorOpen, Info, PlayCircle, Palette, ListPlus } from 'lucide-react';
 import { useRoom } from '../../context/RoomContext';
 import { useTheme } from '../../context/ThemeContext';
 import Player from '../player/Player';
 import Search from '../search/Search';
+import PlaylistImport from '../playlist/PlaylistImport';
 import Queue from '../queue/Queue';
 import Members from './Members';
 import VoteBar from '../voting/VoteBar';
@@ -69,6 +70,12 @@ export default function RoomPage() {
         onClick={() => setTab('queue')}
       >
         <ListMusic size={15} /> Queue
+      </button>
+      <button
+        className={`${styles.tabBtn} ${tab === 'playlist' ? styles.active : ''}`}
+        onClick={() => setTab('playlist')}
+      >
+        <ListPlus size={15} /> Playlist
       </button>
       <button
         className={`${styles.tabBtn} ${tab === 'members' ? styles.active : ''}`}
@@ -163,6 +170,7 @@ export default function RoomPage() {
             <div className={styles.tabContent}>
               {tab === 'search' && <Search />}
               {tab === 'queue' && <Queue />}
+              {tab === 'playlist' && <PlaylistImport />}
               {tab === 'members' && <Members />}
               {tab === 'player' && <div className={styles.playerTabPlaceholder}>Player tab is open</div>}
             </div>

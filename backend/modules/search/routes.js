@@ -26,4 +26,17 @@ router.get('/track/:videoId', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/playlist', requireAuth, async (req, res) => {
+  const input = req.query.url || req.query.id || req.query.q;
+  if (!input) {
+    return res.status(400).json({ error: 'Playlist URL or ID is required' });
+  }
+  try {
+    const data = await searchService.getPlaylistDetails(input);
+    res.json(data);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
