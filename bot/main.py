@@ -47,7 +47,6 @@ if not BOT_BACKEND_USERNAME or not BOT_BACKEND_PASSWORD:
     raise RuntimeError("[Bot] Missing BOT_BACKEND_USERNAME or BOT_BACKEND_PASSWORD")
 
 # ── Backend auth ───────────────────────────────────────────────────────────────
-# POST /api/auth/login → { "token": "<access_token>", "user": { ... } }
 _backend_token: str | None = None
 _backend_token_exp: float = 0.0
 
@@ -93,11 +92,6 @@ async def _api_fetch(
     return resp
 
 # ── Audio relay ────────────────────────────────────────────────────────────────
-# GET /api/media/resolve/:videoId
-# Worker response:  { source: "worker", streamProxyUrl: "...", ... }
-# Legacy response:  { source: "legacy", streamUrl: "...", reason: "..." }
-#   Legacy is a bare YouTube URL — FFmpeg cannot stream it without yt-dlp.
-#   We reject it explicitly, matching index.js behaviour.
 async def _resolve_audio_source(session: aiohttp.ClientSession, video_id: str) -> dict:
     qs = f"?cookieMethod={quote(BOT_COOKIE_METHOD)}" if BOT_COOKIE_METHOD else ""
     resp = await _api_fetch(session, f"/api/media/resolve/{quote(video_id)}{qs}")
@@ -127,6 +121,7 @@ class GuildState:
     def __init__(self, guild_id: int):
         self.guild_id          = guild_id
         self.room_code: str | None = None
+        self.room_id: str | None = None
         self.playback: dict | None = None
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self.ws_task: asyncio.Task | None = None
@@ -141,6 +136,7 @@ class GuildState:
 
     def reset(self):
         self.room_code         = None
+        self.room_id           = None
         self.playback          = None
         self.ws                = None
         self.ws_task           = None
@@ -203,13 +199,17 @@ class PlaybackControls(View):
         self.showing_queue = False
         self.page = 0
 
+    def _header(self) -> str:
+        track       = self.state._now_playing
+        now_playing = track["title"] if track else "Nothing playing"
+        room_code   = self.state.room_code or "—"
+        return f"🎵 **Now Playing:** {now_playing}\n🔑 **Room Code:** `{room_code}`"
+
     async def update_display(self):
         if not self.message:
             return
-        track = self.state._now_playing
-        now_playing = track["title"] if track else "Nothing playing"
         try:
-            await self.message.edit(content=f"🎵 Now Playing: **{now_playing}**", view=self)
+            await self.message.edit(content=self._header(), view=self)
         except Exception:
             pass
 
@@ -265,12 +265,13 @@ class PlaybackControls(View):
         await self._render_queue(interaction)
 
     async def _render_queue(self, interaction: discord.Interaction):
-        # Queue is owned by the backend — read from state.playback
         playback   = self.state.playback or {}
         full_queue = playback.get("queue", [])
         if not full_queue:
             self.showing_queue = False
-            await interaction.response.edit_message(content="🪹 Queue is empty.", view=self)
+            await interaction.response.edit_message(
+                content=self._header() + "\n\n🪹 Queue is empty.", view=self
+            )
             return
         page_size = 10
         max_page  = (len(full_queue) - 1) // page_size
@@ -281,7 +282,10 @@ class PlaybackControls(View):
             f"{start + i + 1}. {t.get('title', 'Unknown')} — {t.get('artist', 'Unknown')}"
             for i, t in enumerate(items)
         )
-        content = f"📃 **Queue Page {self.page + 1}/{max_page + 1}**\n{lines}"
+        content = (
+            self._header()
+            + f"\n\n📃 **Queue Page {self.page + 1}/{max_page + 1}**\n{lines}"
+        )
         await interaction.response.edit_message(content=content, view=self)
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
@@ -298,7 +302,6 @@ async def _handle_ws_message(state: GuildState, msg: dict):
     data  = msg.get("data") or {}
 
     if event == "connected":
-        # Server confirmed connection — join the room
         await _ws_send(state, "join_room", {"code": state.room_code})
 
     elif event == "room_state":
@@ -331,8 +334,8 @@ async def _handle_ws_message(state: GuildState, msg: dict):
 
 async def _run_ws(state: GuildState):
     """
-    WebSocket loop for one guild.
-    Per STANDARDS.md: ws[s]://<backend-host>/ws?token=<JWT>
+    WebSocket loop. Per STANDARDS.md:
+      ws[s]://<backend-host>/ws?token=<JWT>
     Reconnects automatically unless room_code is cleared (intentional leave).
     """
     session = state.session or bot.session
@@ -419,7 +422,6 @@ async def _play_track(state: GuildState, track: dict, position_ms: int = 0):
 
     print(f"[Audio] Playing: {track.get('title', video_id)} [{source_info['source']}]")
 
-    # Honour backend isPlaying flag (e.g. bot joined while room is paused)
     if state.playback and state.playback.get("isPlaying") is False:
         state.voice_client.pause()
         state.last_is_playing = False
@@ -442,7 +444,6 @@ def _sync_playback(state: GuildState):
         )
         return
 
-    # Same track — sync pause/resume
     vc = state.voice_client
     if not vc:
         return
@@ -494,7 +495,54 @@ async def _send_channel_message(state: GuildState, content: str):
 
 # ── Slash commands ─────────────────────────────────────────────────────────────
 
-@bot.tree.command(name="join", description="Join a SpotiSync room and your current voice channel")
+@bot.tree.command(name="create", description="Create a new SpotiSync room and join it")
+async def cmd_create(interaction: discord.Interaction):
+    voice = interaction.user.voice
+    if not voice or not voice.channel:
+        await interaction.response.send_message("❌ Join a voice channel first.", ephemeral=True)
+        return
+
+    await interaction.response.defer()
+    state = get_guild_state(interaction.guild_id)
+    state.text_channel_id = interaction.channel_id
+
+    # POST /api/rooms → { "room": { "joinCode": "...", "id": "...", ... } }
+    try:
+        resp = await _api_fetch(
+            bot.session,
+            "/api/rooms",
+            method="POST",
+            json={"settings": {}},
+        )
+        if not resp.ok:
+            text = await resp.text()
+            raise RuntimeError(f"Room creation failed ({resp.status}): {text}")
+        data      = await resp.json()
+        room      = data.get("room", {})
+        join_code = room.get("joinCode")
+        room_id   = room.get("id")
+        if not join_code:
+            raise RuntimeError("Backend did not return a joinCode")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Failed to create room: {e}")
+        return
+
+    state.room_id = room_id
+
+    connected = await _connect_voice(state, voice.channel)
+    if not connected:
+        await interaction.followup.send("❌ Room created but failed to join your voice channel.")
+        return
+
+    await interaction.followup.send(
+        f"🎉 Room created!\n"
+        f"🔑 **Join Code:** `{join_code}`\n"
+        f"🔊 Joined **{voice.channel.name}** — share the code with others to let them in."
+    )
+    await _connect_room(state, join_code)
+
+
+@bot.tree.command(name="join", description="Join an existing SpotiSync room and your current voice channel")
 @app_commands.describe(code="Room join code")
 async def cmd_join(interaction: discord.Interaction, code: str):
     voice = interaction.user.voice
@@ -542,33 +590,67 @@ async def cmd_queue(interaction: discord.Interaction):
     )
 
 
+# Per-guild autocomplete track cache: { guild_id: { videoId: TrackObject } }
+# Populated during autocomplete, consumed by cmd_add on submission.
+# Avoids needing to encode full TrackObjects into Discord's 100-char value limit.
+_track_cache: dict[int, dict[str, dict]] = {}
+
+def _cache_tracks(guild_id: int, tracks: list[dict]):
+    if guild_id not in _track_cache:
+        _track_cache[guild_id] = {}
+    for t in tracks:
+        vid = t.get("videoId")
+        if vid:
+            _track_cache[guild_id][vid] = t
+
+def _get_cached_track(guild_id: int, video_id: str) -> dict | None:
+    return _track_cache.get(guild_id, {}).get(video_id)
+
+
 @bot.tree.command(name="add", description="Search and add a track to the SpotiSync queue")
-@app_commands.describe(query="Search query")
+@app_commands.describe(query="Start typing a song name or artist")
 async def cmd_add(interaction: discord.Interaction, query: str):
     state = get_guild_state(interaction.guild_id)
     if not state.ws:
         await interaction.response.send_message(
-            "❌ Not connected to a room. Use /join first.", ephemeral=True
+            "❌ Not connected to a room. Use /join or /create first.", ephemeral=True
         )
         return
 
     await interaction.response.defer()
     try:
-        # GET /api/search?q=<query>&limit=1
-        resp = await _api_fetch(
-            state.session or bot.session,
-            f"/api/search?q={quote(query)}&limit=1",
-        )
-        if not resp.ok:
-            text = await resp.text()
-            raise RuntimeError(f"Search failed ({resp.status}): {text}")
-        data    = await resp.json()
-        results = data.get("results", [])
-        if not results:
-            await interaction.followup.send(f"No results for: {query}")
-            return
-        track = results[0]
-        # Backend owns the queue — send via WS
+        # Autocomplete choices pass videoId as value — do a cache lookup first.
+        track = _get_cached_track(interaction.guild_id, query)
+
+        if track is None:
+            # Free-text fallback: user submitted without picking a suggestion.
+            # GET /api/search/track/:videoId if it looks like a videoId,
+            # otherwise fall back to a regular search.
+            if query and len(query) <= 12 and " " not in query:
+                # Might be a raw videoId — try direct track fetch first
+                resp = await _api_fetch(
+                    state.session or bot.session,
+                    f"/api/search/track/{quote(query)}",
+                )
+                if resp.ok:
+                    data  = await resp.json()
+                    track = data.get("track")
+
+            if track is None:
+                resp = await _api_fetch(
+                    state.session or bot.session,
+                    f"/api/search?q={quote(query)}&limit=1",
+                )
+                if not resp.ok:
+                    text = await resp.text()
+                    raise RuntimeError(f"Search failed ({resp.status}): {text}")
+                data    = await resp.json()
+                results = data.get("results", [])
+                if not results:
+                    await interaction.followup.send(f"No results for: {query}")
+                    return
+                track = results[0]
+
         await _ws_send(state, "queue_add", {"item": track})
         await interaction.followup.send(
             f"➕ Added: **{track.get('title', '?')}** — {track.get('artist', '?')}"
@@ -577,12 +659,51 @@ async def cmd_add(interaction: discord.Interaction, query: str):
         await interaction.followup.send(f"❌ Add failed: {e}")
 
 
+@cmd_add.autocomplete("query")
+async def autocomplete_add(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    if not current.strip():
+        return []
+    try:
+        resp = await _api_fetch(
+            bot.session,
+            f"/api/search?q={quote(current)}&limit=25",
+        )
+        if not resp.ok:
+            return []
+        data    = await resp.json()
+        results = data.get("results", [])
+
+        # Cache results so cmd_add can resolve videoId → full TrackObject
+        # without a second network call.
+        _cache_tracks(interaction.guild_id, results)
+
+        choices = []
+        for track in results:
+            title  = track.get("title", "Unknown")
+            artist = track.get("artist", "Unknown")
+            video_id = track.get("videoId", "")
+            if not video_id:
+                continue
+            # Label shown in Discord dropdown — max 100 chars
+            label = f"{title} — {artist}"[:100]
+            # Value is just the videoId (≤11 chars) — well within the 100-char limit
+            choices.append(app_commands.Choice(name=label, value=video_id))
+
+        return choices
+    except Exception as e:
+        print(f"[Autocomplete] Error: {e}")
+        return []
+
+
 @bot.tree.command(name="skip", description="Vote to skip the current track")
 async def cmd_skip(interaction: discord.Interaction):
     state = get_guild_state(interaction.guild_id)
     if not state.ws:
         await interaction.response.send_message(
-            "❌ Not connected to a room. Use /join first.", ephemeral=True
+            "❌ Not connected to a room. Use /join or /create first.", ephemeral=True
         )
         return
     track_id = (state.playback or {}).get("currentItem", {}).get("videoId")
@@ -601,12 +722,11 @@ async def cmd_playback(interaction: discord.Interaction):
             "❌ Not connected to a voice channel.", ephemeral=True
         )
         return
-    track       = state._now_playing
-    now_playing = track["title"] if track else "Nothing playing"
-    controls    = PlaybackControls(state)
-    await interaction.response.send_message(f"🎵 Now Playing: **{now_playing}**", view=controls)
+    controls = PlaybackControls(state)
+    await interaction.response.send_message(controls._header(), view=controls)
     controls.message = await interaction.original_response()
     state._controls  = controls
-    
+
+
 # ── Run ────────────────────────────────────────────────────────────────────────
 bot.run(DISCORD_TOKEN)
