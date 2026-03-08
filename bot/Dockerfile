@@ -1,0 +1,20 @@
+FROM python:3.13
+
+# Install system dependencies:
+# ffmpeg        — required by discord.FFmpegPCMAudio
+# libsodium-dev — required by PyNaCl
+# libopus0      — required for Discord voice encoding
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsodium-dev \
+    libopus0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["python", "main.py"]
