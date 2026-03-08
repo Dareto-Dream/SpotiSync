@@ -175,12 +175,17 @@ class SpotiSyncBot(discord.Client):
     async def setup_hook(self):
         if DISCORD_GUILD_ID:
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
+            # Clear stale commands from previous deploys before re-syncing
+            self.tree.clear_commands(guild=guild)
+            self.tree.clear_commands(guild=None)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            print("[Bot] Registered guild commands")
+            await self.tree.sync()  # push empty global set to remove old global commands
+            print("[Bot] Registered guild commands (stale commands cleared)")
         else:
+            self.tree.clear_commands(guild=None)
             await self.tree.sync()
-            print("[Bot] Registered global commands")
+            print("[Bot] Registered global commands (stale commands cleared)")
 
     async def on_ready(self):
         print(f"[Bot] Logged in as {self.user}")
