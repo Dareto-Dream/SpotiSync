@@ -147,6 +147,21 @@ async function sendChannelMessage(state, content) {
   }
 }
 
+async function respondInteraction(interaction, payload) {
+  try {
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(payload);
+    }
+    return await interaction.reply(payload);
+  } catch (err) {
+    if (err && err.code === 10062) {
+      console.warn('[Bot] Interaction expired before reply could be sent');
+      return;
+    }
+    throw err;
+  }
+}
+
 function ensurePlayer(state) {
   if (state.player) return state.player;
   const player = createAudioPlayer({
@@ -552,26 +567,34 @@ client.on('interactionCreate', async (interaction) => {
     const voice = member && member.voice && member.voice.channel ? member.voice.channel : null;
 
     if (!voice) {
-      await interaction.reply({ content: 'Join a voice channel first.', ephemeral: true });
+      await respondInteraction(interaction, { content: 'Join a voice channel first.', ephemeral: true });
       return;
     }
 
+    try {
+      await interaction.deferReply();
+    } catch (err) {
+      if (!(err && err.code === 10062)) {
+        console.warn('[Bot] Failed to defer reply:', err.message);
+      }
+    }
+
     connectVoice(state, voice);
-    await interaction.reply(`Joining room ${code} and voice channel ${voice.name}...`);
+    await respondInteraction(interaction, `Joining room ${code} and voice channel ${voice.name}...`);
     await connectRoom(state, code);
     return;
   }
 
   if (interaction.commandName === 'leave') {
     cleanupState(state);
-    await interaction.reply('Disconnected from room and voice channel.');
+    await respondInteraction(interaction, 'Disconnected from room and voice channel.');
     return;
   }
 
   if (interaction.commandName === 'queue') {
     const queue = state.playback && Array.isArray(state.playback.queue) ? state.playback.queue : [];
     if (queue.length === 0) {
-      await interaction.reply('Queue is empty.');
+      await respondInteraction(interaction, 'Queue is empty.');
       return;
     }
     const lines = queue.slice(0, 10).map((item, i) => {
@@ -580,14 +603,14 @@ client.on('interactionCreate', async (interaction) => {
       return `${i + 1}. ${title} - ${artist}`;
     });
     const extra = queue.length > 10 ? `\n...and ${queue.length - 10} more` : '';
-    await interaction.reply(`Queue (${queue.length}):\n${lines.join('\n')}${extra}`);
+    await respondInteraction(interaction, `Queue (${queue.length}):\n${lines.join('\n')}${extra}`);
     return;
   }
 
   if (interaction.commandName === 'add') {
     const query = interaction.options.getString('query', true).trim();
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-      await interaction.reply('Not connected to a room. Use /join first.');
+      await respondInteraction(interaction, 'Not connected to a room. Use /join first.');
       return;
     }
 
@@ -600,36 +623,44 @@ client.on('interactionCreate', async (interaction) => {
       const data = await res.json();
       const track = data.results && data.results[0];
       if (!track) {
-        await interaction.reply(`No results for: ${query}`);
+        await respondInteraction(interaction, `No results for: ${query}`);
         return;
       }
 
       const ok = wsSend(state, 'queue_add', { item: track });
       if (!ok) throw new Error('WebSocket not ready');
-      await interaction.reply(`Added to queue: ${track.title} - ${track.artist}`);
+      await respondInteraction(interaction, `Added to queue: ${track.title} - ${track.artist}`);
     } catch (err) {
-      await interaction.reply(`Add failed: ${err.message}`);
+      await respondInteraction(interaction, `Add failed: ${err.message}`);
     }
     return;
   }
 
   if (interaction.commandName === 'skip') {
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-      await interaction.reply('Not connected to a room. Use /join first.');
+      await respondInteraction(interaction, 'Not connected to a room. Use /join first.');
       return;
     }
     const trackId = state.playback && state.playback.currentItem ? state.playback.currentItem.videoId : null;
     if (!trackId) {
-      await interaction.reply('Nothing is playing.');
+      await respondInteraction(interaction, 'Nothing is playing.');
       return;
     }
     const ok = wsSend(state, 'vote', { action: 'skip', trackId });
     if (!ok) {
-      await interaction.reply('Failed to send vote.');
+      await respondInteraction(interaction, 'Failed to send vote.');
       return;
     }
-    await interaction.reply('Voted to skip.');
+    await respondInteraction(interaction, 'Voted to skip.');
   }
 });
 
+client.on('error', (err) => {
+  console.error('[Bot] Client error:', err.message);
+});
+
 client.login(DISCORD_TOKEN);
+
+process.on('unhandledRejection', (err) => {
+  console.error('[Bot] Unhandled rejection:', err && err.message ? err.message : err);
+});
