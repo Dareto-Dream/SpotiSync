@@ -158,6 +158,7 @@ def get_guild_state(guild_id: int) -> GuildState:
 intents = discord.Intents.default()
 intents.voice_states = True
 intents.guilds = True
+intents.members = True  # needed to resolve voice state from interaction.user
 
 class SpotiSyncBot(discord.Client):
     def __init__(self):
@@ -460,13 +461,16 @@ async def _connect_voice(state: GuildState, channel: discord.VoiceChannel) -> bo
     try:
         if state.voice_client and state.voice_client.is_connected():
             await state.voice_client.disconnect(force=True)
+        print(f"[Voice] Attempting to connect to {channel.name} ({channel.id})")
         vc = await channel.connect()
         state.voice_client     = vc
         state.voice_channel_id = channel.id
         print(f"[Voice] Connected to {channel.name} ({channel.id})")
         return True
     except Exception as e:
+        import traceback
         print(f"[Voice] Failed to connect: {e}")
+        traceback.print_exc()
         return False
 
 async def _cleanup_state(state: GuildState):

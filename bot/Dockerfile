@@ -1,5 +1,8 @@
 FROM python:3.13
 
+# Ensure print() output is flushed immediately in Railway's container
+ENV PYTHONUNBUFFERED=1
+
 # Install system dependencies:
 # ffmpeg        — required by discord.FFmpegPCMAudio
 # libsodium-dev — required by PyNaCl
