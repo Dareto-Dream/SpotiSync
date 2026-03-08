@@ -5,11 +5,11 @@ ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies:
 # ffmpeg        — required by discord.FFmpegPCMAudio
-# libsodium-dev — required by PyNaCl
+# libsodium23   — runtime library required by PyNaCl
 # libopus0      — required for Discord voice encoding
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    libsodium-dev \
+    libsodium23 \
     libopus0 \
     && rm -rf /var/lib/apt/lists/*
 
