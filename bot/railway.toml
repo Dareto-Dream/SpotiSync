@@ -1,0 +1,8 @@
+[build]
+builder = "railpack"
+
+[build.aptInstall]
+packages = ["ffmpeg", "libsodium-dev"]
+
+[deploy]
+startCommand = "python main.py"
