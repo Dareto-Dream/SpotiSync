@@ -84,6 +84,8 @@ function buildYtDlpStreamArgs(url) {
   const args = [
     '--no-warnings',
     '--no-playlist',
+    '--extractor-args',
+    'youtube:player_client=tv_embedded',
     '-f',
     'ba/b',
     '-o',

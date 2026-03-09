@@ -66,8 +66,14 @@ function endActive(token, statusCode = 502, message = 'Stream ended') {
   const res = activeResponses.get(token);
   activeResponses.delete(token);
   if (!res || res.writableEnded) return;
-  if (!res.headersSent) res.statusCode = statusCode;
-  try { res.end(message); } catch {}
+  if (!res.headersSent) {
+    res.statusCode = statusCode;
+    try { res.end(message); } catch {}
+  } else {
+    // Headers already sent (flushHeaders was called) — do not write a text body.
+    // Writing an error string would cause the audio client to see garbage data.
+    try { res.end(); } catch {}
+  }
 }
 
 function handleWorkerMessage(ws, data, isBinary) {
