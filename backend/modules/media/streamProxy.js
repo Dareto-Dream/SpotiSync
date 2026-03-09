@@ -193,6 +193,7 @@ async function handleStreamRequest(req, res) {
   res.setHeader('Transfer-Encoding', 'chunked');
   res.setHeader('X-Accel-Buffering', 'no');
   if (ready.contentType) res.setHeader('Content-Type', ready.contentType);
+  res.flushHeaders(); // send headers immediately so clients don't timeout waiting for first audio byte
 
   res.on('close', () => {
     activeResponses.delete(token);

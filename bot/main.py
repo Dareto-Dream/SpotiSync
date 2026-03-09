@@ -411,10 +411,7 @@ async def _play_track(state: GuildState, track: dict, position_ms: int = 0):
         return
 
     start_seconds  = max(0, position_ms // 1000)
-    before_options = (
-        f"-ss {start_seconds} "
-        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
-    )
+    before_options = f"-ss {start_seconds}" if start_seconds > 0 else ""
     audio_source = discord.FFmpegPCMAudio(
         source_info["url"],
         before_options=before_options,
