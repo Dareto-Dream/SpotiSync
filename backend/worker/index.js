@@ -84,8 +84,6 @@ function buildYtDlpStreamArgs(url) {
   const args = [
     '--no-warnings',
     '--no-playlist',
-    '--js-runtimes',
-    'node',
     '--extractor-args',
     'youtube:player_client=web',
     '-f',
