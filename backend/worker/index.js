@@ -85,7 +85,7 @@ function buildYtDlpStreamArgs(url) {
     '--no-warnings',
     '--no-playlist',
     '--extractor-args',
-    'youtube:player_client=tv_embedded',
+    'youtube:player_client=ios',
     '-f',
     'ba/b',
     '-o',
