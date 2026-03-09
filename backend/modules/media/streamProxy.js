@@ -195,7 +195,7 @@ async function handleStreamRequest(req, res) {
   if (ready.contentType) res.setHeader('Content-Type', ready.contentType);
   res.flushHeaders(); // send headers immediately so clients don't timeout waiting for first audio byte
 
-  res.on('close', () => {
+  req.on('close', () => {
     activeResponses.delete(token);
     if (ready.ws && ready.ws.readyState === 1) {
       ready.ws.send(JSON.stringify({ event: 'stream_cancel', data: { proxyToken: token } }));

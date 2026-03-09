@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl.exe -s -X POST \"https://spotisync-production.up.railway.app/api/auth/login\" -H \"Content-Type: application/json\" -d \"{\"\"username\"\":\"\"AMAZINGBOT\"\",\"\"password\"\":\"\"iluvdeltavdevs\"\"}\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZWFiYjI0NS0yZjYwLTRjY2EtYjhlNi1mMDAyOWU1MGJjYmEiLCJ1c2VybmFtZSI6IkFNQVpJTkdCT1QiLCJpYXQiOjE3NzMwMzYxMjMsImV4cCI6MTc3MzAzNzAyM30.h212s0YExxllgoBNQgISXVXHMap-EePxFUJYP5I2B0Q\")",
+      "Bash(curl.exe -sv \"https://spotisync-production.up.railway.app/api/media/resolve/dQw4w9WgXcQ\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(STREAM_URL=\"https://spotisync-production.up.railway.app/api/media/stream/e3fcf9e4-4051-4487-a845-540614cad372\")",
+      "Bash(curl.exe -sv --max-time 15 -o /dev/null \"$STREAM_URL\")",
+      "Bash(curl.exe -sv --max-time 15 \"https://spotisync-production.up.railway.app/api/media/stream/e3fcf9e4-4051-4487-a845-540614cad372\")",
+      "Bash(curl.exe -sv --max-time 10 -w \"\\\\n\\\\nTIMING: connect=%{time_connect} starttransfer=%{time_starttransfer} total=%{time_total} downloaded=%{size_download}b\\\\n\" \"https://spotisync-production.up.railway.app/api/media/stream/6d7a91f6-588b-4c55-ac27-2dbd8eb8aee8\")",
+      "Bash(curl.exe -s --max-time 10 -o /tmp/stream_test.bin -w \"HTTP_CODE=%{http_code} TTFB=%{time_starttransfer} TOTAL=%{time_total} DOWNLOADED=%{size_download}\" \"https://spotisync-production.up.railway.app/api/media/stream/6d7a91f6-588b-4c55-ac27-2dbd8eb8aee8\")"
+    ]
+  }
+}

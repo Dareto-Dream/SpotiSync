@@ -177,6 +177,7 @@ function pumpStreamToWs(readable, ws, proxyToken) {
   return new Promise((resolve, reject) => {
     const MAX_BUFFER = 8 * 1024 * 1024;
     let paused = false;
+    let bytesSent = 0;
 
     const maybeResume = () => {
       if (!paused) return;
@@ -191,6 +192,7 @@ function pumpStreamToWs(readable, ws, proxyToken) {
 
     const onData = (chunk) => {
       if (ws.readyState !== WebSocket.OPEN) return;
+      bytesSent += chunk.length;
       ws.send(chunk, { binary: true }, (err) => {
         if (err) reject(err);
       });
@@ -202,7 +204,7 @@ function pumpStreamToWs(readable, ws, proxyToken) {
 
     const onEnd = () => {
       clearInterval(bufferCheck);
-      resolve();
+      resolve(bytesSent);
     };
 
     const onError = (err) => {
@@ -265,6 +267,10 @@ async function streamJobViaWebSocket(job) {
     if (ffmpeg) ffmpeg.kill('SIGTERM');
   };
 
+  // Capture yt-dlp stderr so failures are visible in logs
+  let ytDlpStderr = '';
+  ytDlp.stderr.on('data', (chunk) => { ytDlpStderr += chunk.toString(); });
+
   ws.on('message', (data, isBinary) => {
     if (isBinary) return;
     let msg;
@@ -284,8 +290,14 @@ async function streamJobViaWebSocket(job) {
   if (ffmpeg) ytDlp.stdout.pipe(ffmpeg.stdin);
 
   try {
-    await pumpStreamToWs(source, ws, proxyToken);
-    ws.send(JSON.stringify({ event: 'stream_end', data: { proxyToken } }));
+    const bytesStreamed = await pumpStreamToWs(source, ws, proxyToken);
+    if (bytesStreamed === 0) {
+      const reason = ytDlpStderr.trim().split('\n').pop() || 'yt-dlp produced no output';
+      logError(`yt-dlp produced 0 bytes. stderr: ${ytDlpStderr.trim() || '(empty)'}`);
+      ws.send(JSON.stringify({ event: 'stream_error', data: { proxyToken, message: `yt-dlp produced no audio: ${reason}` } }));
+    } else {
+      ws.send(JSON.stringify({ event: 'stream_end', data: { proxyToken } }));
+    }
   } catch (err) {
     ws.send(JSON.stringify({ event: 'stream_error', data: { proxyToken, message: err.message } }));
   } finally {
