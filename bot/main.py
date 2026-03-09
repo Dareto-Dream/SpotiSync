@@ -175,10 +175,6 @@ class SpotiSyncBot(discord.Client):
     async def setup_hook(self):
         if DISCORD_GUILD_ID:
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
-            # Copy all commands to the guild scope and sync.
-            # Syncing always overwrites Discord's registered set with the current
-            # tree — no manual clearing needed. Also sync global scope with an
-            # empty set to remove any leftover commands from previous global deploys.
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
             await self.tree.sync(guild=None)  # clears stale global commands
@@ -307,6 +303,14 @@ async def _handle_ws_message(state: GuildState, msg: dict):
     event = msg.get("event")
     data  = msg.get("data") or {}
 
+    if event == "auth_required":
+        # The backend sends this immediately on connection and will not process
+        # any other messages until it receives a valid auth response.
+        # The query-string token is ignored by the backend WS handler — it
+        # always requires this explicit auth message.
+        await _ws_send(state, "auth", {"token": _backend_token})
+        return
+
     if event == "connected":
         await _ws_send(state, "join_room", {"code": state.room_code})
 
@@ -342,6 +346,9 @@ async def _run_ws(state: GuildState):
     """
     WebSocket loop. Per STANDARDS.md:
       ws[s]://<backend-host>/ws?token=<JWT>
+    The backend ignores the query-string token for WS auth — it always requires
+    an explicit { event: "auth", data: { token } } message, which is handled in
+    _handle_ws_message via the auth_required event.
     Reconnects automatically unless room_code is cleared (intentional leave).
     """
     session = state.session or bot.session
@@ -515,7 +522,6 @@ async def cmd_create(interaction: discord.Interaction):
     state = get_guild_state(interaction.guild_id)
     state.text_channel_id = interaction.channel_id
 
-    # POST /api/rooms → { "room": { "joinCode": "...", "id": "...", ... } }
     try:
         resp = await _api_fetch(
             bot.session,
@@ -600,8 +606,6 @@ async def cmd_queue(interaction: discord.Interaction):
 
 
 # Per-guild autocomplete track cache: { guild_id: { videoId: TrackObject } }
-# Populated during autocomplete, consumed by cmd_add on submission.
-# Avoids needing to encode full TrackObjects into Discord's 100-char value limit.
 _track_cache: dict[int, dict[str, dict]] = {}
 
 def _cache_tracks(guild_id: int, tracks: list[dict]):
@@ -628,15 +632,10 @@ async def cmd_add(interaction: discord.Interaction, query: str):
 
     await interaction.response.defer()
     try:
-        # Autocomplete choices pass videoId as value — do a cache lookup first.
         track = _get_cached_track(interaction.guild_id, query)
 
         if track is None:
-            # Free-text fallback: user submitted without picking a suggestion.
-            # GET /api/search/track/:videoId if it looks like a videoId,
-            # otherwise fall back to a regular search.
             if query and len(query) <= 12 and " " not in query:
-                # Might be a raw videoId — try direct track fetch first
                 resp = await _api_fetch(
                     state.session or bot.session,
                     f"/api/search/track/{quote(query)}",
@@ -685,20 +684,16 @@ async def autocomplete_add(
         data    = await resp.json()
         results = data.get("results", [])
 
-        # Cache results so cmd_add can resolve videoId → full TrackObject
-        # without a second network call.
         _cache_tracks(interaction.guild_id, results)
 
         choices = []
         for track in results:
-            title  = track.get("title", "Unknown")
-            artist = track.get("artist", "Unknown")
+            title    = track.get("title", "Unknown")
+            artist   = track.get("artist", "Unknown")
             video_id = track.get("videoId", "")
             if not video_id:
                 continue
-            # Label shown in Discord dropdown — max 100 chars
             label = f"{title} — {artist}"[:100]
-            # Value is just the videoId (≤11 chars) — well within the 100-char limit
             choices.append(app_commands.Choice(name=label, value=video_id))
 
         return choices
