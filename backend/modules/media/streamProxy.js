@@ -82,6 +82,11 @@ function handleWorkerMessage(ws, data, isBinary) {
     if (!token) return;
     const res = activeResponses.get(token);
     if (res && !res.writableEnded) {
+      if (!ws._bytesSent) {
+        ws._bytesSent = 0;
+        console.log(`[Proxy] First audio chunk from worker token=${token} size=${data.length}`);
+      }
+      ws._bytesSent += data.length;
       res.write(data);
     }
     return;
@@ -118,18 +123,21 @@ function handleWorkerMessage(ws, data, isBinary) {
     if (!proxyToken) return;
     const session = sessions.get(proxyToken);
     if (!session) {
+      console.warn(`[Proxy] stream_ready for unknown token=${proxyToken} worker=${ws._workerId}`);
       ws.send(JSON.stringify({ event: 'error', data: { message: 'Unknown proxy token' } }));
       return;
     }
     session.ws = ws;
     session.contentType = payload?.contentType || null;
     ws._proxyToken = proxyToken;
+    console.log(`[Proxy] stream_ready worker=${ws._workerId} token=${proxyToken} contentType=${session.contentType}`);
     notifyWaiters(session);
     return;
   }
 
   if (event === 'stream_end') {
     const proxyToken = ws._proxyToken;
+    console.log(`[Proxy] stream_end worker=${ws._workerId} token=${proxyToken} bytesSent=${ws._bytesSent ?? 0}`);
     if (proxyToken) {
       endActive(proxyToken, 200, '');
       sessions.delete(proxyToken);
@@ -140,6 +148,7 @@ function handleWorkerMessage(ws, data, isBinary) {
 
   if (event === 'stream_error') {
     const proxyToken = ws._proxyToken;
+    console.error(`[Proxy] stream_error worker=${ws._workerId} token=${proxyToken} bytesSent=${ws._bytesSent ?? 0} msg=${payload?.message}`);
     if (proxyToken) {
       endActive(proxyToken, 502, payload?.message || 'Stream error');
       sessions.delete(proxyToken);
@@ -160,6 +169,7 @@ function setupWorkerStream(wss) {
     ws.on('close', () => {
       const token = ws._proxyToken;
       if (token) {
+        console.warn(`[Proxy] Worker WS closed unexpectedly worker=${ws._workerId} token=${token} bytesSent=${ws._bytesSent ?? 0}`);
         endActive(token, 502, 'Worker disconnected');
         sessions.delete(token);
       }
@@ -173,20 +183,30 @@ async function handleStreamRequest(req, res) {
   const token = String(req.params.token || '').trim();
   if (!token) return res.status(400).json({ error: 'Missing stream token' });
 
+  console.log(`[Proxy] Stream request token=${token} sessionExists=${sessions.has(token)}`);
+
   const session = sessions.get(token);
-  if (!session) return res.status(404).json({ error: 'Invalid or expired stream token' });
+  if (!session) {
+    console.warn(`[Proxy] Token not found token=${token}`);
+    return res.status(404).json({ error: 'Invalid or expired stream token' });
+  }
 
   if (session.expiresAt <= Date.now()) {
+    console.warn(`[Proxy] Token expired token=${token}`);
     sessions.delete(token);
     return res.status(410).json({ error: 'Stream token expired' });
   }
 
   if (activeResponses.has(token)) {
+    console.warn(`[Proxy] Stream already in progress token=${token}`);
     return res.status(409).json({ error: 'Stream already in progress' });
   }
 
-  const ready = session.ws ? session : await waitForReady(token);
+  const workerAlreadyReady = !!session.ws;
+  const ready = workerAlreadyReady ? session : await waitForReady(token);
+  console.log(`[Proxy] waitForReady token=${token} workerAlreadyReady=${workerAlreadyReady} ready=${!!ready} wsState=${ready?.ws?.readyState}`);
   if (!ready || !ready.ws || ready.ws.readyState !== 1) {
+    console.error(`[Proxy] Worker not ready token=${token}`);
     return res.status(504).json({ error: 'Worker stream not ready' });
   }
 
@@ -202,6 +222,7 @@ async function handleStreamRequest(req, res) {
   res.flushHeaders(); // send headers immediately so clients don't timeout waiting for first audio byte
 
   req.on('close', () => {
+    console.log(`[Proxy] Client disconnected token=${token}`);
     activeResponses.delete(token);
     if (ready.ws && ready.ws.readyState === 1) {
       ready.ws.send(JSON.stringify({ event: 'stream_cancel', data: { proxyToken: token } }));
@@ -209,6 +230,7 @@ async function handleStreamRequest(req, res) {
     sessions.delete(token);
   });
 
+  console.log(`[Proxy] Sending stream_start to worker token=${token} contentType=${ready.contentType}`);
   try {
     ready.ws.send(JSON.stringify({ event: 'stream_start', data: { proxyToken: token } }));
   } catch {

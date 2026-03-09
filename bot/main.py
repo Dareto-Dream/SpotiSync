@@ -94,11 +94,15 @@ async def _api_fetch(
 # ── Audio relay ────────────────────────────────────────────────────────────────
 async def _resolve_audio_source(session: aiohttp.ClientSession, video_id: str) -> dict:
     qs = f"?cookieMethod={quote(BOT_COOKIE_METHOD)}" if BOT_COOKIE_METHOD else ""
+    print(f"[Relay] Resolving video={video_id}")
     resp = await _api_fetch(session, f"/api/media/resolve/{quote(video_id)}{qs}")
+    print(f"[Relay] Resolve status={resp.status}")
     if not resp.ok:
         text = await resp.text()
+        print(f"[Relay] Resolve error body: {text}")
         raise RuntimeError(f"Relay error ({resp.status}): {text}")
     data = await resp.json()
+    print(f"[Relay] Resolve response: {data}")
     if not data:
         raise RuntimeError("Relay unavailable (empty response)")
 
@@ -412,6 +416,7 @@ async def _play_track(state: GuildState, track: dict, position_ms: int = 0):
 
     start_seconds  = max(0, position_ms // 1000)
     before_options = f"-ss {start_seconds}" if start_seconds > 0 else ""
+    print(f"[Audio] FFmpeg url={source_info['url']} before_options={before_options!r}")
     audio_source = discord.FFmpegPCMAudio(
         source_info["url"],
         before_options=before_options,
@@ -424,6 +429,8 @@ async def _play_track(state: GuildState, track: dict, position_ms: int = 0):
     def after_play(error):
         if error:
             print(f"[Audio] Playback error: {error}")
+        else:
+            print(f"[Audio] Playback finished cleanly for video={video_id}")
 
     state.voice_client.play(audio_source, after=after_play)
     state.last_track_id   = video_id

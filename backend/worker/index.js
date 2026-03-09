@@ -236,6 +236,7 @@ async function streamJobViaWebSocket(job) {
     event: 'stream_ready',
     data: { proxyToken, contentType },
   }));
+  log(`Sent stream_ready proxyToken=${proxyToken}`);
 
   await submitResult(job.id, {
     success: true,
@@ -248,13 +249,16 @@ async function streamJobViaWebSocket(job) {
     },
   });
 
+  log(`Waiting for stream_start proxyToken=${proxyToken}`);
   const shouldStart = await waitForStreamStart(ws, proxyToken);
+  log(`waitForStreamStart result=${shouldStart} proxyToken=${proxyToken}`);
   if (!shouldStart) {
     try { ws.close(1000, 'Cancelled'); } catch {}
     return;
   }
 
   const ytDlpArgs = buildYtDlpStreamArgs(url);
+  log(`Spawning yt-dlp args=${JSON.stringify(ytDlpArgs)}`);
   const ytDlp = spawn(YTDLP_BIN, ytDlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
   const ffmpeg = ENABLE_FFMPEG_TRANSCODE
     ? spawn(FFMPEG_BIN, tokenizeArgs(FFMPEG_ARGS), { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -289,9 +293,12 @@ async function streamJobViaWebSocket(job) {
 
   try {
     const bytesStreamed = await pumpStreamToWs(source, ws, proxyToken);
+    log(`pumpStreamToWs finished proxyToken=${proxyToken} bytesStreamed=${bytesStreamed}`);
+    if (ytDlpStderr.trim()) {
+      logError(`yt-dlp stderr:\n${ytDlpStderr.trim()}`);
+    }
     if (bytesStreamed === 0) {
       const reason = ytDlpStderr.trim().split('\n').pop() || 'yt-dlp produced no output';
-      logError(`yt-dlp produced 0 bytes. stderr: ${ytDlpStderr.trim() || '(empty)'}`);
       ws.send(JSON.stringify({ event: 'stream_error', data: { proxyToken, message: `yt-dlp produced no audio: ${reason}` } }));
     } else {
       ws.send(JSON.stringify({ event: 'stream_end', data: { proxyToken } }));
